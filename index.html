@@ -1,0 +1,2031 @@
+```html
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="color-scheme" content="light only" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="HabitTrack" />
+  <title>HabitTrack — Theo Dõi Thói Quen Hằng Ngày</title>
+
+  <!-- Biểu tượng ứng dụng nhúng dạng SVG Base64 (hỗ trợ cài PWA trên điện thoại / GitHub Pages) -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='16' fill='%231e293b'/%3E%3Crect x='12' y='14' width='10' height='10' rx='3' fill='%2338bdf8'/%3E%3Crect x='27' y='14' width='10' height='10' rx='3' fill='%2334d399'/%3E%3Crect x='42' y='14' width='10' height='10' rx='3' fill='%23f87171'/%3E%3Crect x='12' y='28' width='10' height='10' rx='3' fill='%23a78bfa'/%3E%3Crect x='27' y='28' width='10' height='10' rx='3' fill='%23fbbf24'/%3E%3Crect x='42' y='28' width='10' height='10' rx='3' fill='%2360a5fa'/%3E%3Cpath d='M18 48l7 6 21-16' stroke='%23ffffff' stroke-width='5' stroke-linecap='round' stroke-linejoin='round' fill='none'/%3E%3C/svg%3E" />
+
+  <!-- Thư viện Tailwind CSS, Chart.js và Lucide Icons qua CDN chuẩn -->
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+
+  <style>
+    /* Khóa chế độ Sáng (Light Mode) để trình duyệt điện thoại không tự đảo màu */
+    :root {
+      color-scheme: light only;
+    }
+
+    html, body {
+      background-color: #f8fafc;
+      color: #0f172a;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      -webkit-tap-highlight-color: transparent;
+      overscroll-behavior-y: none;
+    }
+
+    /* Thanh cuộn mảnh gọn */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 999px;
+    }
+
+    /* Lưới Heatmap 53 tuần x 7 ngày giống giao diện Báo cáo thói quen theo Năm */
+    .year-heatmap-grid {
+      display: grid;
+      grid-template-rows: repeat(7, 1fr);
+      grid-auto-flow: column;
+      gap: 2px;
+      width: 100%;
+    }
+
+    .year-heatmap-cell {
+      aspect-ratio: 1 / 1;
+      border-radius: 2px;
+      transition: transform 0.12s ease, opacity 0.12s ease;
+      cursor: pointer;
+    }
+    .year-heatmap-cell:hover {
+      transform: scale(1.35);
+      z-index: 10;
+      outline: 1.5px solid #0f172a;
+    }
+
+    /* Hiệu ứng nảy nhẹ khi tick hoàn thành thói quen */
+    @keyframes popCheck {
+      0% { transform: scale(0.85); }
+      55% { transform: scale(1.12); }
+      100% { transform: scale(1); }
+    }
+    .animate-pop {
+      animation: popCheck 0.22s ease-out;
+    }
+
+    /* Đệm an toàn cho thanh điều hướng dưới cùng trên điện thoại */
+    .safe-bottom {
+      padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+    }
+
+    /* Tooltip nổi khi rê chuột hoặc chạm vào ô Heatmap */
+    #heatmap-tooltip {
+      pointer-events: none;
+      transition: opacity 0.12s ease;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-900 antialiased">
+
+  <!-- Khung ứng dụng chính: tối ưu di động (Mobile-First), căn giữa gọn gàng trên máy tính -->
+  <div id="app-shell" class="mx-auto min-h-screen max-w-xl bg-white shadow-sm sm:my-4 sm:min-h-[calc(100vh-2rem)] sm:rounded-3xl sm:border sm:border-slate-200 flex flex-col relative overflow-x-clip">
+
+    <!-- Thanh thông báo chế độ Dữ liệu mẫu (ẩn tự động khi người dùng xóa dữ liệu mẫu) -->
+    <div id="demo-banner" class="hidden bg-amber-50 border-b border-amber-200 px-4 py-2.5 flex items-center justify-between gap-2 text-xs text-amber-900">
+      <div class="flex items-center gap-2 min-w-0">
+        <i data-lucide="sparkles" class="w-4 h-4 text-amber-600 shrink-0"></i>
+        <span class="truncate">Đang hiển thị <strong>dữ liệu mẫu</strong> để bạn xem thử biểu đồ năm.</span>
+      </div>
+      <button id="btn-clear-demo" type="button" class="shrink-0 rounded-lg bg-amber-600 px-2.5 py-1 font-semibold text-white hover:bg-amber-700 active:scale-95 transition">
+        Bắt đầu mới
+      </button>
+    </div>
+
+    <!-- Header cố định trên cùng -->
+    <header class="sticky top-0 z-20 bg-white/95 backdrop-blur-md border-b border-slate-100 px-4 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-2.5 min-w-0">
+        <div class="w-8 h-8 rounded-xl bg-slate-900 flex items-center justify-center text-white shrink-0">
+          <i data-lucide="check-square" class="w-4 h-4"></i>
+        </div>
+        <div class="min-w-0">
+          <h1 id="header-title" class="text-base font-bold text-slate-900 leading-tight truncate">Hôm nay</h1>
+          <p id="header-subtitle" class="text-xs text-slate-500 truncate">Đang tải ngày...</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2 shrink-0">
+        <!-- Nút xuất nhanh dữ liệu (giống nút tải xuống góc trên phải trong ảnh mẫu) -->
+        <button id="btn-quick-export" type="button" title="Xuất dữ liệu JSON / CSV" class="w-9 h-9 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition active:scale-95">
+          <i data-lucide="arrow-down-circle" class="w-5 h-5"></i>
+        </button>
+        <!-- Nút thêm thói quen mới -->
+        <button id="btn-open-add-habit" type="button" class="h-9 px-3 rounded-full bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold flex items-center gap-1.5 transition active:scale-95">
+          <i data-lucide="plus" class="w-4 h-4"></i>
+          <span>Thêm</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Vùng nội dung chính chứa 4 Tab -->
+    <main class="flex-1 pb-24">
+
+      <!-- =========================================================
+           TAB 1: HÔM NAY (CHECK-IN THÓI QUEN HẰNG NGÀY)
+           ========================================================= -->
+      <section id="view-today" class="p-4 space-y-4">
+        <!-- Thanh chọn nhanh 7 ngày trong tuần -->
+        <div class="bg-slate-50 rounded-2xl p-2.5 border border-slate-100">
+          <div class="flex items-center justify-between mb-2 px-1">
+            <button id="btn-today-prev-week" type="button" class="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100">
+              <i data-lucide="chevron-left" class="w-4 h-4"></i>
+            </button>
+            <button id="btn-today-jump-now" type="button" class="text-xs font-semibold text-slate-700 hover:text-slate-900 px-2.5 py-1 rounded-lg hover:bg-slate-200/70 transition">
+              Hôm nay
+            </button>
+            <button id="btn-today-next-week" type="button" class="w-7 h-7 rounded-lg bg-white border border-slate-200 flex items-center justify-center text-slate-600 hover:bg-slate-100">
+              <i data-lucide="chevron-right" class="w-4 h-4"></i>
+            </button>
+          </div>
+          <div id="today-week-strip" class="grid grid-cols-7 gap-1"></div>
+        </div>
+
+        <!-- Thẻ tóm tắt tiến độ trong ngày -->
+        <div class="rounded-2xl bg-slate-900 text-white p-4 flex items-center justify-between gap-4">
+          <div class="space-y-1 min-w-0">
+            <p class="text-xs text-slate-300 font-medium" id="today-progress-label">Tiến độ hôm nay</p>
+            <div class="flex items-baseline gap-2">
+              <span id="today-completed-count" class="text-2xl font-bold">0/0</span>
+              <span id="today-completed-pct" class="text-sm font-semibold text-emerald-400">0%</span>
+            </div>
+            <div class="w-44 max-w-full h-2 bg-slate-700 rounded-full overflow-hidden mt-1.5">
+              <div id="today-progress-bar" class="h-full bg-emerald-400 rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+          </div>
+          <div class="text-right shrink-0">
+            <div class="inline-flex items-center gap-1 rounded-xl bg-white/10 px-3 py-1.5 text-xs font-semibold text-amber-300">
+              <i data-lucide="flame" class="w-4 h-4"></i>
+              <span id="today-best-streak">0 ngày</span>
+            </div>
+            <p class="text-[11px] text-slate-400 mt-1">Chuỗi cao nhất</p>
+          </div>
+        </div>
+
+        <!-- Bộ lọc khung giờ (Buổi) -->
+        <div id="today-time-filters" class="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+          <button type="button" data-filter="all" class="time-filter-btn px-3 py-1.5 rounded-full text-xs font-semibold bg-slate-900 text-white shrink-0">Tất cả</button>
+          <button type="button" data-filter="morning" class="time-filter-btn px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">Sáng</button>
+          <button type="button" data-filter="afternoon" class="time-filter-btn px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">Chiều</button>
+          <button type="button" data-filter="evening" class="time-filter-btn px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">Tối</button>
+          <button type="button" data-filter="anytime" class="time-filter-btn px-3 py-1.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 shrink-0">Cả ngày</button>
+        </div>
+
+        <!-- Danh sách thói quen cần check-in -->
+        <div id="today-habit-list" class="space-y-2.5"></div>
+      </section>
+
+      <!-- =========================================================
+           TAB 2: BÁO CÁO THÓI QUEN (THIẾT KẾ THEO ẢNH MẪU HEATMAP)
+           ========================================================= -->
+      <section id="view-report" class="hidden p-4 space-y-3.5">
+        <!-- Thanh chuyển đổi chế độ xem: Tuần / Tháng / Năm -->
+        <div class="grid grid-cols-3 gap-2">
+          <button type="button" data-period="week" class="report-period-btn flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+            <i data-lucide="columns-3" class="w-4 h-4"></i>
+            <span>Tuần</span>
+          </button>
+          <button type="button" data-period="month" class="report-period-btn flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-100 text-slate-600 hover:bg-slate-200 transition">
+            <i data-lucide="calendar-days" class="w-4 h-4"></i>
+            <span>Tháng</span>
+          </button>
+          <button type="button" data-period="year" class="report-period-btn flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold bg-slate-900 text-white transition">
+            <i data-lucide="grid-3x3" class="w-4 h-4"></i>
+            <span>Năm</span>
+          </button>
+        </div>
+
+        <!-- Thanh điều hướng mốc thời gian (< Hôm nay >) giống ảnh mẫu -->
+        <div class="flex items-center justify-center gap-2">
+          <div id="report-period-label" class="px-5 py-2 rounded-xl bg-slate-100 text-slate-800 text-xs font-bold min-w-[118px] text-center">
+            2026
+          </div>
+          <button id="btn-report-prev" type="button" aria-label="Kỳ trước" class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition active:scale-95">
+            <i data-lucide="chevron-left" class="w-4 h-4"></i>
+          </button>
+          <button id="btn-report-today" type="button" class="px-4 h-9 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition active:scale-95">
+            Hôm nay
+          </button>
+          <button id="btn-report-next" type="button" aria-label="Kỳ sau" class="w-9 h-9 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 flex items-center justify-center transition active:scale-95">
+            <i data-lucide="chevron-right" class="w-4 h-4"></i>
+          </button>
+        </div>
+
+        <!-- Tùy chọn sắp xếp danh sách báo cáo -->
+        <div class="flex items-center justify-between text-[11px] text-slate-500 px-0.5">
+          <span id="report-summary-hint">Chạm vào ô màu để xem hoặc cập nhật ngày</span>
+          <button id="btn-report-sort" type="button" class="inline-flex items-center gap-1 font-semibold text-slate-700 hover:text-slate-900">
+            <i data-lucide="arrow-up-down" class="w-3.5 h-3.5"></i>
+            <span id="report-sort-label">Theo % cao nhất</span>
+          </button>
+        </div>
+
+        <!-- Danh sách thẻ Heatmap từng thói quen -->
+        <div id="report-habit-cards" class="space-y-3"></div>
+      </section>
+
+      <!-- =========================================================
+           TAB 3: LỊCH & THỐNG KÊ CHUYÊN SÂU
+           ========================================================= -->
+      <section id="view-calendar" class="hidden p-4 space-y-4">
+        <!-- 4 chỉ số tổng quan (KPI Cards) -->
+        <div class="grid grid-cols-2 gap-2.5">
+          <div class="rounded-2xl bg-slate-50 border border-slate-100 p-3">
+            <p class="text-[11px] font-medium text-slate-500">Trung bình 30 ngày</p>
+            <p id="stat-avg-30" class="text-xl font-bold text-slate-900 mt-0.5">0%</p>
+          </div>
+          <div class="rounded-2xl bg-slate-50 border border-slate-100 p-3">
+            <p class="text-[11px] font-medium text-slate-500">Chuỗi dài nhất</p>
+            <p id="stat-max-streak" class="text-xl font-bold text-amber-600 mt-0.5">0 ngày</p>
+          </div>
+          <div class="rounded-2xl bg-slate-50 border border-slate-100 p-3">
+            <p class="text-[11px] font-medium text-slate-500">Tổng lượt hoàn thành</p>
+            <p id="stat-total-checkins" class="text-xl font-bold text-emerald-600 mt-0.5">0</p>
+          </div>
+          <div class="rounded-2xl bg-slate-50 border border-slate-100 p-3">
+            <p class="text-[11px] font-medium text-slate-500">Thói quen đều nhất</p>
+            <p id="stat-top-habit" class="text-sm font-bold text-slate-900 mt-1 truncate">—</p>
+          </div>
+        </div>
+
+        <!-- Lịch tháng tổng hợp -->
+        <div class="rounded-2xl border border-slate-200 bg-white p-3.5 space-y-3">
+          <div class="flex items-center justify-between">
+            <h2 id="cal-month-title" class="text-sm font-bold text-slate-900">Tháng 11, 2026</h2>
+            <div class="flex items-center gap-1.5">
+              <button id="btn-cal-prev" type="button" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700">
+                <i data-lucide="chevron-left" class="w-4 h-4"></i>
+              </button>
+              <button id="btn-cal-today" type="button" class="px-2.5 h-8 rounded-lg bg-slate-900 text-white text-xs font-semibold">
+                Hôm nay
+              </button>
+              <button id="btn-cal-next" type="button" class="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-700">
+                <i data-lucide="chevron-right" class="w-4 h-4"></i>
+              </button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-7 text-center text-[11px] font-semibold text-slate-400">
+            <div>T2</div><div>T3</div><div>T4</div><div>T5</div><div>T6</div><div>T7</div><div>CN</div>
+          </div>
+          <div id="cal-grid" class="grid grid-cols-7 gap-1.5"></div>
+        </div>
+
+        <!-- Chi tiết các thói quen trong ngày đang chọn trên Lịch -->
+        <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-3.5 space-y-2.5">
+          <div class="flex items-center justify-between">
+            <h3 id="cal-selected-date-title" class="text-xs font-bold text-slate-800">Chi tiết ngày đang chọn</h3>
+            <span id="cal-selected-date-pct" class="text-xs font-bold text-emerald-600">0%</span>
+          </div>
+          <div id="cal-day-habits" class="space-y-2"></div>
+        </div>
+
+        <!-- Biểu đồ xu hướng 14 ngày gần nhất -->
+        <div class="rounded-2xl border border-slate-200 bg-white p-3.5">
+          <div class="flex items-center justify-between mb-2">
+            <h3 class="text-xs font-bold text-slate-800">Xu hướng hoàn thành 14 ngày gần nhất</h3>
+            <span class="text-[11px] text-slate-400">Đơn vị: %</span>
+          </div>
+          <div class="relative h-48">
+            <canvas id="trend-chart"></canvas>
+          </div>
+        </div>
+      </section>
+
+      <!-- =========================================================
+           TAB 4: DỮ LIỆU, SAO LƯU & CÀI ĐẶT
+           ========================================================= -->
+      <section id="view-settings" class="hidden p-4 space-y-4">
+        <!-- Khu vực Sao lưu & Xuất file JSON / CSV -->
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+          <div class="flex items-center gap-2">
+            <i data-lucide="hard-drive-download" class="w-4 h-4 text-slate-700"></i>
+            <h2 class="text-sm font-bold text-slate-900">Sao lưu & Xuất dữ liệu</h2>
+          </div>
+          <p class="text-xs text-slate-500 leading-relaxed">
+            Toàn bộ dữ liệu được lưu cục bộ (LocalStorage) ngay trên trình duyệt này. Bạn nên xuất file JSON định kỳ để sao lưu hoặc chuyển sang thiết bị khác.
+          </p>
+
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button id="btn-export-json" type="button" class="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition active:scale-95">
+              <i data-lucide="file-json" class="w-4 h-4"></i>
+              <span>Lưu file sao lưu (.JSON)</span>
+            </button>
+            <label for="input-import-json" class="cursor-pointer flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-semibold transition active:scale-95">
+              <i data-lucide="upload" class="w-4 h-4"></i>
+              <span>Khôi phục từ (.JSON)</span>
+              <input id="input-import-json" type="file" accept=".json,application/json" class="hidden" />
+            </label>
+          </div>
+
+          <div class="pt-1 border-t border-slate-100 space-y-2">
+            <p class="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Xuất bảng tính Excel / Google Sheets</p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button id="btn-export-csv-matrix" type="button" class="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold transition active:scale-95">
+                <i data-lucide="table-2" class="w-4 h-4"></i>
+                <span>Xuất CSV Ma trận (30 ngày)</span>
+              </button>
+              <button id="btn-export-csv-log" type="button" class="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-sky-50 hover:bg-sky-100 text-sky-800 border border-sky-200 text-xs font-semibold transition active:scale-95">
+                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+                <span>Xuất CSV Nhật ký đầy đủ</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="storage-info" class="text-[11px] text-slate-400 pt-1">
+            Đang kiểm tra bộ nhớ cục bộ...
+          </div>
+        </div>
+
+        <!-- Quản lý danh sách thói quen -->
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 space-y-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <i data-lucide="list-checks" class="w-4 h-4 text-slate-700"></i>
+              <h2 class="text-sm font-bold text-slate-900">Quản lý thói quen</h2>
+            </div>
+            <button id="btn-settings-add-habit" type="button" class="text-xs font-semibold text-sky-600 hover:text-sky-700">
+              + Thêm mới
+            </button>
+          </div>
+          <div id="settings-habit-list" class="space-y-2"></div>
+        </div>
+
+        <!-- Khu vực đặt lại / Dữ liệu mẫu -->
+        <div class="rounded-2xl border border-slate-200 bg-white p-4 space-y-2.5">
+          <h2 class="text-sm font-bold text-slate-900">Tùy chọn dữ liệu</h2>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <button id="btn-load-demo" type="button" class="py-2.5 px-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 text-xs font-semibold transition">
+              Nạp lại dữ liệu mẫu
+            </button>
+            <button id="btn-reset-all" type="button" class="py-2.5 px-3 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-semibold transition">
+              Xóa trắng lịch sử check-in
+            </button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Thanh điều hướng 4 Tab cố định dưới cùng (tương ứng 4 icon trong ảnh mẫu) -->
+    <nav class="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-xl bg-white/95 backdrop-blur-md border-t border-slate-200 z-30 safe-bottom sm:rounded-b-3xl">
+      <div class="grid grid-cols-4 h-16">
+        <button type="button" data-tab="today" class="nav-tab-btn flex flex-col items-center justify-center gap-1 text-slate-900 font-semibold">
+          <i data-lucide="check-square" class="w-5 h-5"></i>
+          <span class="text-[11px]">Hôm nay</span>
+        </button>
+        <button type="button" data-tab="report" class="nav-tab-btn flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700">
+          <i data-lucide="bar-chart-3" class="w-5 h-5"></i>
+          <span class="text-[11px]">Báo cáo</span>
+        </button>
+        <button type="button" data-tab="calendar" class="nav-tab-btn flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700">
+          <i data-lucide="calendar" class="w-5 h-5"></i>
+          <span class="text-[11px]">Lịch</span>
+        </button>
+        <button type="button" data-tab="settings" class="nav-tab-btn flex flex-col items-center justify-center gap-1 text-slate-400 hover:text-slate-700">
+          <i data-lucide="sliders-horizontal" class="w-5 h-5"></i>
+          <span class="text-[11px]">Cài đặt</span>
+        </button>
+      </div>
+    </nav>
+  </div>
+
+  <!-- =========================================================
+       MODAL THÊM / CHỈNH SỬA THÓI QUEN
+       ========================================================= -->
+  <div id="habit-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white w-full max-w-md rounded-t-3xl sm:rounded-3xl p-5 space-y-4 max-h-[90vh] overflow-y-auto shadow-xl">
+      <div class="flex items-center justify-between">
+        <h2 id="habit-modal-title" class="text-base font-bold text-slate-900">Thêm thói quen mới</h2>
+        <button id="btn-close-habit-modal" type="button" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+
+      <form id="habit-form" class="space-y-3.5">
+        <input type="hidden" id="habit-id-input" />
+
+        <div>
+          <label for="habit-name-input" class="block text-xs font-semibold text-slate-700 mb-1">Tên thói quen *</label>
+          <input id="habit-name-input" type="text" required placeholder="VD: Uống nước, Đọc sách, Tập thể dục..." class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
+        </div>
+
+        <div>
+          <label for="habit-subtitle-input" class="block text-xs font-semibold text-slate-700 mb-1">Mô tả mục tiêu hiển thị</label>
+          <input id="habit-subtitle-input" type="text" placeholder="VD: 8 cốc mỗi ngày, 30 phút mỗi tối..." class="w-full rounded-xl border border-slate-200 px-3.5 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="habit-type-input" class="block text-xs font-semibold text-slate-700 mb-1">Kiểu theo dõi</label>
+            <select id="habit-type-input" class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
+              <option value="boolean">Đánh dấu (Có / Không)</option>
+              <option value="counter">Đếm số lượng (Mục tiêu)</option>
+            </select>
+          </div>
+          <div>
+            <label for="habit-time-input" class="block text-xs font-semibold text-slate-700 mb-1">Khung giờ</label>
+            <select id="habit-time-input" class="w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
+              <option value="anytime">Cả ngày</option>
+              <option value="morning">Buổi sáng</option>
+              <option value="afternoon">Buổi chiều</option>
+              <option value="evening">Buổi tối</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Cấu hình riêng cho kiểu Đếm số lượng -->
+        <div id="counter-config-row" class="hidden grid grid-cols-3 gap-2.5 bg-slate-50 p-3 rounded-xl border border-slate-100">
+          <div>
+            <label for="habit-target-input" class="block text-[11px] font-semibold text-slate-600 mb-1">Mục tiêu/ngày</label>
+            <input id="habit-target-input" type="number" min="1" step="any" value="8" class="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm bg-white" />
+          </div>
+          <div>
+            <label for="habit-step-input" class="block text-[11px] font-semibold text-slate-600 mb-1">Mỗi lần bấm (+)</label>
+            <input id="habit-step-input" type="number" min="0.5" step="any" value="1" class="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm bg-white" />
+          </div>
+          <div>
+            <label for="habit-unit-input" class="block text-[11px] font-semibold text-slate-600 mb-1">Đơn vị</label>
+            <input id="habit-unit-input" type="text" value="cốc" placeholder="cốc, trang..." class="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm bg-white" />
+          </div>
+        </div>
+
+        <!-- Bảng chọn màu sắc cho Heatmap -->
+        <div>
+          <label class="block text-xs font-semibold text-slate-700 mb-1.5">Màu sắc hiển thị (Heatmap)</label>
+          <div id="habit-color-picker" class="flex items-center gap-2.5 flex-wrap"></div>
+        </div>
+
+        <div class="flex items-center justify-between gap-2 pt-2">
+          <button id="btn-delete-habit-modal" type="button" class="hidden px-3.5 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold">
+            Xóa thói quen
+          </button>
+          <div class="flex items-center gap-2 ml-auto">
+            <button id="btn-cancel-habit-modal" type="button" class="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold">
+              Hủy
+            </button>
+            <button type="submit" class="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold">
+              Lưu thói quen
+            </button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL XÁC NHẬN HÀNH ĐỘNG (THAY THẾ HOÀN TOÀN CONFIRM/ALERT)
+       ========================================================= -->
+  <div id="confirm-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white w-full max-w-sm rounded-3xl p-5 space-y-4 shadow-xl">
+      <div class="space-y-1.5">
+        <h3 id="confirm-modal-title" class="text-base font-bold text-slate-900">Xác nhận</h3>
+        <p id="confirm-modal-message" class="text-xs text-slate-600 leading-relaxed"></p>
+      </div>
+      <div class="flex items-center justify-end gap-2">
+        <button id="btn-confirm-cancel" type="button" class="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold">
+          Hủy
+        </button>
+        <button id="btn-confirm-ok" type="button" class="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-semibold">
+          Đồng ý
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =========================================================
+       MODAL XUẤT NHANH DỮ LIỆU (KHI BẤM ICON TẢI XUỐNG TRÊN HEADER)
+       ========================================================= -->
+  <div id="export-modal" class="hidden fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div class="bg-white w-full max-w-sm rounded-t-3xl sm:rounded-3xl p-5 space-y-3 shadow-xl">
+      <div class="flex items-center justify-between">
+        <h3 class="text-sm font-bold text-slate-900">Xuất & Sao lưu dữ liệu</h3>
+        <button id="btn-close-export-modal" type="button" class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 flex items-center justify-center text-slate-600">
+          <i data-lucide="x" class="w-4 h-4"></i>
+        </button>
+      </div>
+      <button id="btn-quick-json" type="button" class="w-full flex items-center gap-3 p-3 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200 text-left transition">
+        <div class="w-9 h-9 rounded-xl bg-slate-900 text-white flex items-center justify-center shrink-0">
+          <i data-lucide="file-json" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <p class="text-xs font-bold text-slate-900">Tải file sao lưu (.JSON)</p>
+          <p class="text-[11px] text-slate-500">Lưu toàn bộ thói quen & lịch sử để khôi phục</p>
+        </div>
+      </button>
+      <button id="btn-quick-csv-matrix" type="button" class="w-full flex items-center gap-3 p-3 rounded-2xl bg-emerald-50/70 hover:bg-emerald-50 border border-emerald-200 text-left transition">
+        <div class="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0">
+          <i data-lucide="table-2" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <p class="text-xs font-bold text-emerald-950">Xuất bảng CSV Ma trận (30 ngày)</p>
+          <p class="text-[11px] text-emerald-700">Ngày nằm ngang, thói quen nằm dọc</p>
+        </div>
+      </button>
+      <button id="btn-quick-csv-log" type="button" class="w-full flex items-center gap-3 p-3 rounded-2xl bg-sky-50/70 hover:bg-sky-50 border border-sky-200 text-left transition">
+        <div class="w-9 h-9 rounded-xl bg-sky-600 text-white flex items-center justify-center shrink-0">
+          <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+        </div>
+        <div>
+          <p class="text-xs font-bold text-sky-950">Xuất CSV Nhật ký chi tiết</p>
+          <p class="text-[11px] text-sky-700">Toàn bộ lịch sử theo từng dòng dữ liệu</p>
+        </div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Tooltip nổi cho ô Heatmap -->
+  <div id="heatmap-tooltip" class="hidden fixed z-50 rounded-lg bg-slate-900 px-2.5 py-1.5 text-[11px] font-medium text-white shadow-lg"></div>
+
+  <!-- Thông báo Toast gọn gàng phía trên thanh tab -->
+  <div id="toast-container" class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center gap-2 w-full max-w-xs px-4"></div>
+
+  <script>
+    /* =====================================================================
+       1. CẤU HÌNH HẰNG SỐ, BẢNG MÀU HEATMAP & KHÓA LƯU TRỮ LOCALSTORAGE
+       ===================================================================== */
+    const STORAGE_KEY = 'habittrack_local_v1';
+
+    // Bảng màu 6 tông chính giống ảnh mẫu + 2 tông bổ sung (mỗi màu có 5 cấp độ đậm nhạt)
+    const COLOR_PALETTES = {
+      sky: {
+        name: 'Xanh dương',
+        hex: '#5ba9e1',
+        shades: ['#eaf4fc', '#bde0f7', '#8cc7f0', '#5ba9e1', '#2e86c1']
+      },
+      coral: {
+        name: 'Đỏ san hô',
+        hex: '#d96b6b',
+        shades: ['#fcecec', '#f5c2c2', '#e89595', '#d96b6b', '#c04444']
+      },
+      teal: {
+        name: 'Xanh ngọc',
+        hex: '#38b29a',
+        shades: ['#e7f7f4', '#b4e5db', '#79d0bf', '#38b29a', '#1d8a75']
+      },
+      purple: {
+        name: 'Tím oải hương',
+        hex: '#9b82d6',
+        shades: ['#f2effb', '#d8cdf2', '#baa8e6', '#9b82d6', '#7659bf']
+      },
+      amber: {
+        name: 'Vàng nắng',
+        hex: '#eab043',
+        shades: ['#fdf6e7', '#fae1ae', '#f3c978', '#eab043', '#d08d1a']
+      },
+      indigo: {
+        name: 'Xanh lam tím',
+        hex: '#7b8cde',
+        shades: ['#eff1fb', '#cfd6f5', '#a6b2ea', '#7b8cde', '#5163c2']
+      },
+      emerald: {
+        name: 'Xanh lá',
+        hex: '#22c55e',
+        shades: ['#ecfdf5', '#bbf7d0', '#86efac', '#4ade80', '#16a34a']
+      },
+      rose: {
+        name: 'Hồng đậm',
+        hex: '#ec4899',
+        shades: ['#fdf2f8', '#fbcfe8', '#f9a8d4', '#f472b6', '#db2777']
+      }
+    };
+
+    const TIME_LABELS = {
+      anytime: 'Cả ngày',
+      morning: 'Buổi sáng',
+      afternoon: 'Buổi chiều',
+      evening: 'Buổi tối'
+    };
+
+    const DAY_SHORT_VI = ['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'];
+
+    /* =====================================================================
+       2. HÀM TIỆN ÍCH NGÀY THÁNG (LUÔN DÙNG GIỜ ĐỊA PHƯƠNG ĐỂ KHÔNG LỆCH NGÀY)
+       ===================================================================== */
+    function toDateKey(dateObj) {
+      const y = dateObj.getFullYear();
+      const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(dateObj.getDate()).padStart(2, '0');
+      return `${y}-${m}-${d}`;
+    }
+
+    function parseDateKey(key) {
+      const [y, m, d] = key.split('-').map(Number);
+      return new Date(y, m - 1, d);
+    }
+
+    function addDays(dateObj, delta) {
+      const copy = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+      copy.setDate(copy.getDate() + delta);
+      return copy;
+    }
+
+    function getMondayOfWeek(dateObj) {
+      const d = new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate());
+      const day = d.getDay(); // 0 = CN, 1 = T2 ...
+      const diff = day === 0 ? -6 : 1 - day;
+      d.setDate(d.getDate() + diff);
+      return d;
+    }
+
+    function formatDateViLong(dateObj) {
+      const weekdays = ['Chủ Nhật', 'Thứ Hai', 'Thứ Ba', 'Thứ Tư', 'Thứ Năm', 'Thứ Sáu', 'Thứ Bảy'];
+      return `${weekdays[dateObj.getDay()]}, ${String(dateObj.getDate()).padStart(2, '0')}/${String(dateObj.getMonth() + 1).padStart(2, '0')}/${dateObj.getFullYear()}`;
+    }
+
+    function formatDateViShort(dateKey) {
+      const [y, m, d] = dateKey.split('-');
+      return `${d}/${m}/${y}`;
+    }
+
+    function escapeHtml(str) {
+      return String(str || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    /* =====================================================================
+       3. QUẢN LÝ TRẠNG THÁI ỨNG DỤNG & DỮ LIỆU MẪU (DEMO)
+       ===================================================================== */
+    const todayDate = new Date();
+    const todayKey = toDateKey(todayDate);
+
+    // Trạng thái lưu trữ chính (sẽ được lưu vào localStorage)
+    let appData = {
+      isDemo: true,
+      lastUpdated: new Date().toISOString(),
+      habits: [],
+      // logs dạng: { "habit_id": { "YYYY-MM-DD": số_đạt_được } }
+      logs: {}
+    };
+
+    // Trạng thái giao diện tạm thời (UI State)
+    let uiState = {
+      activeTab: 'report', // Mở mặc định ở tab "Hôm nay" hay "Báo cáo"? Để "today" là tự nhiên nhất, hoặc cho người dùng chuyển nhanh
+      selectedTodayKey: todayKey,
+      todayFilter: 'all',
+      reportPeriod: 'year', // 'week' | 'month' | 'year'
+      reportAnchorDate: new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate()),
+      reportSortByPct: true,
+      calViewYear: todayDate.getFullYear(),
+      calViewMonth: todayDate.getMonth(),
+      calSelectedKey: todayKey,
+      selectedColor: 'sky'
+    };
+
+    // Khởi tạo mở ở Tab "Báo cáo" nếu muốn thấy ngay heatmap, nhưng Tab "Hôm nay" là trung tâm check-in — ta mở ở Tab "Báo cáo" hay "Hôm nay"?
+    // Mở ở Tab "Báo cáo" giúp kiểm tra ngay màn hình giống ảnh mẫu, sau đó chuyển sang "Hôm nay" chỉ 1 chạm!
+    uiState.activeTab = 'report';
+
+    let trendChartInstance = null;
+    let pendingConfirmAction = null;
+
+    // Tạo dữ liệu mẫu thực tế giống 6 thói quen trong ảnh người dùng gửi
+    function buildDemoData() {
+      const year = todayDate.getFullYear();
+      const demoHabits = [
+        { id: 'h_water', name: 'Uống nước', subtitle: '8 cốc mỗi ngày', type: 'counter', target: 8, step: 1, unit: 'cốc', color: 'sky', timeOfDay: 'anytime', createdAt: `${year}-01-01` },
+        { id: 'h_read', name: 'Đọc sách', subtitle: '200 trang mỗi tuần', type: 'counter', target: 30, step: 10, unit: 'trang', color: 'coral', timeOfDay: 'evening', createdAt: `${year}-01-01` },
+        { id: 'h_steps', name: 'Số bước', subtitle: '10.000 bước mỗi ngày', type: 'counter', target: 10, step: 2, unit: 'nghìn bước', color: 'teal', timeOfDay: 'afternoon', createdAt: `${year}-01-01` },
+        { id: 'h_stretch', name: 'Giãn cơ', subtitle: '2 lần mỗi ngày', type: 'counter', target: 2, step: 1, unit: 'lần', color: 'purple', timeOfDay: 'morning', createdAt: `${year}-01-01` },
+        { id: 'h_wake', name: 'Dậy sớm', subtitle: 'Hằng ngày', type: 'boolean', target: 1, step: 1, unit: 'lần', color: 'amber', timeOfDay: 'morning', createdAt: `${year}-01-01` },
+        { id: 'h_study', name: 'Học bài', subtitle: '3 giờ mỗi ngày', type: 'counter', target: 3, step: 1, unit: 'giờ', color: 'indigo', timeOfDay: 'evening', createdAt: `${year}-01-01` }
+      ];
+
+      // Tỷ lệ hoàn thành mục tiêu tương ứng gần giống ảnh mẫu (88%, 86%, 77%, 74%, 72%, 67%)
+      const baseRates = {
+        h_water: 0.88,
+        h_read: 0.86,
+        h_steps: 0.77,
+        h_stretch: 0.74,
+        h_wake: 0.72,
+        h_study: 0.67
+      };
+
+      const logs = {};
+      const startOfYear = new Date(year, 0, 1);
+
+      // Hàm sinh số giả ngẫu nhiên có seed cố định để biểu đồ đẹp và ổn định
+      let seed = 20261124;
+      function seededRandom() {
+        seed = (seed * 1664525 + 1013904223) % 4294967296;
+        return seed / 4294967296;
+      }
+
+      demoHabits.forEach((h) => {
+        logs[h.id] = {};
+        const rate = baseRates[h.id] || 0.75;
+        let cursor = new Date(startOfYear.getTime());
+        while (cursor <= todayDate) {
+          const key = toDateKey(cursor);
+          const r = seededRandom();
+          if (r < rate * 0.72) {
+            // Hoàn thành 100%
+            logs[h.id][key] = h.target;
+          } else if (r < rate) {
+            // Hoàn thành một phần (tạo độ đậm nhạt tự nhiên trên lưới heatmap)
+            if (h.type === 'boolean') {
+              logs[h.id][key] = 1;
+            } else {
+              const partial = Math.max(h.step, Math.round((h.target * (0.35 + seededRandom() * 0.5)) / h.step) * h.step);
+              logs[h.id][key] = Math.min(h.target, partial);
+            }
+          }
+          cursor = addDays(cursor, 1);
+        }
+      });
+
+      return {
+        isDemo: true,
+        lastUpdated: new Date().toISOString(),
+        habits: demoHabits,
+        logs
+      };
+    }
+
+    // Đọc dữ liệu từ LocalStorage an toàn (bọc try/catch)
+    function loadFromStorage() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && Array.isArray(parsed.habits) && typeof parsed.logs === 'object') {
+            appData = parsed;
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Không thể đọc LocalStorage, sử dụng bộ nhớ tạm:', err);
+      }
+      appData = buildDemoData();
+      saveToStorage();
+    }
+
+    // Lưu dữ liệu xuống LocalStorage an toàn (bọc try/catch)
+    function saveToStorage() {
+      appData.lastUpdated = new Date().toISOString();
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(appData));
+      } catch (err) {
+        console.warn('Không thể ghi LocalStorage:', err);
+      }
+      updateStorageInfo();
+    }
+
+    /* =====================================================================
+       4. LOGIC TÍNH TOÁN TIẾN ĐỘ, CHUỖI (STREAK) & MÀU HEATMAP
+       ===================================================================== */
+    function getHabitValue(habitId, dateKey) {
+      return (appData.logs[habitId] && Number(appData.logs[habitId][dateKey])) || 0;
+    }
+
+    function getHabitRatio(habit, dateKey) {
+      const val = getHabitValue(habit.id, dateKey);
+      const target = Number(habit.target) || 1;
+      if (target <= 0) return 0;
+      return Math.max(0, Math.min(1, val / target));
+    }
+
+    function isHabitDone(habit, dateKey) {
+      return getHabitRatio(habit, dateKey) >= 1;
+    }
+
+    function setHabitValue(habitId, dateKey, value) {
+      if (!appData.logs[habitId]) appData.logs[habitId] = {};
+      const cleanVal = Math.max(0, Number(value) || 0);
+      if (cleanVal <= 0) {
+        delete appData.logs[habitId][dateKey];
+      } else {
+        appData.logs[habitId][dateKey] = cleanVal;
+      }
+      saveToStorage();
+    }
+
+    // Chọn màu tương ứng tỷ lệ hoàn thành (0% -> 100%)
+    function getShadeForRatio(colorKey, ratio) {
+      const palette = COLOR_PALETTES[colorKey] || COLOR_PALETTES.sky;
+      if (ratio <= 0) return palette.shades[0];
+      if (ratio < 0.35) return palette.shades[1];
+      if (ratio < 0.7) return palette.shades[2];
+      if (ratio < 1) return palette.shades[3];
+      return palette.shades[4];
+    }
+
+    // Tính chuỗi hiện tại (Current Streak) của một thói quen
+    function getCurrentStreak(habit) {
+      let streak = 0;
+      let cursor = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate());
+      // Nếu hôm nay chưa tick thì vẫn tính chuỗi liên tục đến hôm qua
+      if (!isHabitDone(habit, toDateKey(cursor))) {
+        cursor = addDays(cursor, -1);
+      }
+      while (isHabitDone(habit, toDateKey(cursor))) {
+        streak++;
+        cursor = addDays(cursor, -1);
+        if (streak > 1000) break;
+      }
+      return streak;
+    }
+
+    // Tính chuỗi dài nhất mọi thời đại của một thói quen
+    function getLongestStreak(habit) {
+      const habitLogs = appData.logs[habit.id] || {};
+      const doneKeys = Object.keys(habitLogs)
+        .filter((k) => getHabitRatio(habit, k) >= 1)
+        .sort();
+      if (doneKeys.length === 0) return 0;
+
+      let best = 1;
+      let current = 1;
+      for (let i = 1; i < doneKeys.length; i++) {
+        const prev = parseDateKey(doneKeys[i - 1]);
+        const curr = parseDateKey(doneKeys[i]);
+        const diffDays = Math.round((curr - prev) / 86400000);
+        if (diffDays === 1) {
+          current++;
+          if (current > best) best = current;
+        } else if (diffDays > 1) {
+          current = 1;
+        }
+      }
+      return best;
+    }
+
+    // Tính % hoàn thành trung bình của một thói quen trong khoảng ngày [startDate, endDate]
+    function calcPeriodCompletionPct(habit, startDate, endDate) {
+      const effectiveEnd = endDate > todayDate ? todayDate : endDate;
+      if (effectiveEnd < startDate) return 0;
+
+      let totalDays = 0;
+      let ratioSum = 0;
+      let cursor = new Date(startDate.getFullYear(), startDate.getMonth(), startDate.getDate());
+      while (cursor <= effectiveEnd) {
+        totalDays++;
+        ratioSum += getHabitRatio(habit, toDateKey(cursor));
+        cursor = addDays(cursor, 1);
+      }
+      if (totalDays === 0) return 0;
+      return Math.round((ratioSum / totalDays) * 100);
+    }
+
+    // Tính % hoàn thành tổng thể của tất cả thói quen trong 1 ngày
+    function getDailyOverallPct(dateKey) {
+      if (appData.habits.length === 0) return 0;
+      let sum = 0;
+      appData.habits.forEach((h) => {
+        sum += getHabitRatio(h, dateKey);
+      });
+      return Math.round((sum / appData.habits.length) * 100);
+    }
+
+    /* =====================================================================
+       5. RENDER TAB 1: HÔM NAY (CHECK-IN HẰNG NGÀY)
+       ===================================================================== */
+    function renderTodayTab() {
+      const selectedDate = parseDateKey(uiState.selectedTodayKey);
+      const isActualToday = uiState.selectedTodayKey === todayKey;
+
+      // 1. Render thanh 7 ngày trong tuần
+      const monday = getMondayOfWeek(selectedDate);
+      const stripEl = document.getElementById('today-week-strip');
+      let stripHtml = '';
+      for (let i = 0; i < 7; i++) {
+        const d = addDays(monday, i);
+        const key = toDateKey(d);
+        const isSelected = key === uiState.selectedTodayKey;
+        const isNow = key === todayKey;
+        const pct = getDailyOverallPct(key);
+        const dotColor = pct >= 100 ? 'bg-emerald-500' : pct > 0 ? 'bg-sky-400' : 'bg-slate-200';
+
+        stripHtml += `
+          <button type="button" data-select-date="${key}" class="flex flex-col items-center py-2 rounded-xl transition ${
+            isSelected ? 'bg-slate-900 text-white shadow-xs' : 'hover:bg-white text-slate-700'
+          }">
+            <span class="text-[10px] font-medium ${isSelected ? 'text-slate-300' : 'text-slate-400'}">${DAY_SHORT_VI[i]}</span>
+            <span class="text-xs font-bold mt-0.5 ${isNow && !isSelected ? 'text-sky-600' : ''}">${d.getDate()}</span>
+            <span class="w-1.5 h-1.5 rounded-full mt-1 ${isSelected ? 'bg-emerald-400' : dotColor}"></span>
+          </button>
+        `;
+      }
+      stripEl.innerHTML = stripHtml;
+
+      // 2. Render thẻ tóm tắt tiến độ
+      const totalHabits = appData.habits.length;
+      const doneCount = appData.habits.filter((h) => isHabitDone(h, uiState.selectedTodayKey)).length;
+      const overallPct = getDailyOverallPct(uiState.selectedTodayKey);
+      const bestStreak = appData.habits.reduce((max, h) => Math.max(max, getCurrentStreak(h)), 0);
+
+      document.getElementById('today-progress-label').textContent = isActualToday
+        ? 'Tiến độ hôm nay'
+        : `Tiến độ ngày ${formatDateViShort(uiState.selectedTodayKey)}`;
+      document.getElementById('today-completed-count').textContent = `${doneCount}/${totalHabits}`;
+      document.getElementById('today-completed-pct').textContent = `${overallPct}%`;
+      document.getElementById('today-progress-bar').style.width = `${overallPct}%`;
+      document.getElementById('today-best-streak').textContent = `${bestStreak} ngày`;
+
+      // 3. Cập nhật trạng thái nút lọc buổi
+      document.querySelectorAll('.time-filter-btn').forEach((btn) => {
+        const active = btn.dataset.filter === uiState.todayFilter;
+        btn.className = `time-filter-btn px-3 py-1.5 rounded-full text-xs shrink-0 transition ${
+          active ? 'font-semibold bg-slate-900 text-white' : 'font-medium bg-slate-100 text-slate-600 hover:bg-slate-200'
+        }`;
+      });
+
+      // 4. Render danh sách thói quen
+      const listEl = document.getElementById('today-habit-list');
+      const filtered = appData.habits.filter((h) => uiState.todayFilter === 'all' || h.timeOfDay === uiState.todayFilter);
+
+      if (appData.habits.length === 0) {
+        listEl.innerHTML = `
+          <div class="rounded-2xl border border-dashed border-slate-300 p-8 text-center space-y-2">
+            <p class="text-sm font-semibold text-slate-700">Chưa có thói quen nào</p>
+            <p class="text-xs text-slate-500">Bấm nút <strong>+ Thêm</strong> ở góc trên phải để tạo thói quen đầu tiên của bạn.</p>
+          </div>
+        `;
+        return;
+      }
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = `
+          <div class="rounded-2xl bg-slate-50 p-6 text-center text-xs text-slate-500">
+            Không có thói quen nào trong khung giờ này.
+          </div>
+        `;
+        return;
+      }
+
+      listEl.innerHTML = filtered.map((h) => {
+        const palette = COLOR_PALETTES[h.color] || COLOR_PALETTES.sky;
+        const val = getHabitValue(h.id, uiState.selectedTodayKey);
+        const ratio = getHabitRatio(h, uiState.selectedTodayKey);
+        const done = ratio >= 1;
+        const streak = getCurrentStreak(h);
+        const pct = Math.round(ratio * 100);
+
+        return `
+          <div class="rounded-2xl border ${done ? 'border-slate-200 bg-slate-50/60' : 'border-slate-200 bg-white'} p-3.5 transition">
+            <div class="flex items-center justify-between gap-3">
+              <!-- Nút Check tròn bên trái -->
+              <button type="button" data-action="toggle-habit" data-habit-id="${h.id}"
+                class="w-10 h-10 rounded-full flex items-center justify-center shrink-0 transition active:scale-90 border-2"
+                style="background-color: ${done ? palette.hex : '#ffffff'}; border-color: ${palette.hex}; color: ${done ? '#ffffff' : palette.hex};">
+                <i data-lucide="check" class="w-5 h-5 ${done ? 'opacity-100' : 'opacity-25'}"></i>
+              </button>
+
+              <!-- Thông tin thói quen -->
+              <div class="flex-1 min-w-0 cursor-pointer" data-action="edit-habit" data-habit-id="${h.id}">
+                <div class="flex items-center gap-1.5">
+                  <p class="text-sm font-bold text-slate-900 truncate ${done ? 'line-through text-slate-500' : ''}">${escapeHtml(h.name)}</p>
+                  ${streak > 0 ? `<span class="inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 shrink-0">🔥 ${streak}</span>` : ''}
+                </div>
+                <p class="text-xs text-slate-500 truncate mt-0.5">
+                  ${escapeHtml(h.subtitle || TIME_LABELS[h.timeOfDay] || '')}
+                  ${h.type === 'counter' ? ` · <strong class="text-slate-700">${val}/${h.target} ${escapeHtml(h.unit)}</strong>` : ''}
+                </p>
+              </div>
+
+              <!-- Bộ nút đếm (- / +) cho thói quen dạng số lượng -->
+              ${h.type === 'counter' ? `
+                <div class="flex items-center gap-1 shrink-0">
+                  <button type="button" data-action="dec-habit" data-habit-id="${h.id}" class="w-8 h-8 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-sm flex items-center justify-center active:scale-90">−</button>
+                  <button type="button" data-action="inc-habit" data-habit-id="${h.id}" class="w-8 h-8 rounded-xl text-white font-bold text-sm flex items-center justify-center active:scale-90" style="background-color: ${palette.hex};">+</button>
+                </div>
+              ` : `
+                <span class="text-xs font-bold shrink-0 ${done ? 'text-emerald-600' : 'text-slate-400'}">${done ? 'Xong' : 'Chưa'}</span>
+              `}
+            </div>
+
+            <!-- Thanh tiến độ mảnh cho thói quen dạng đếm số lượng -->
+            ${h.type === 'counter' ? `
+              <div class="mt-2.5 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                <div class="h-full rounded-full transition-all duration-300" style="width: ${pct}%; background-color: ${palette.hex};"></div>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      }).join('');
+
+      refreshIcons();
+    }
+
+    /* =====================================================================
+       6. RENDER TAB 2: BÁO CÁO THÓI QUEN (GIỐNG ẢNH MẪU HEATMAP)
+       ===================================================================== */
+    function renderReportTab() {
+      const period = uiState.reportPeriod;
+      const anchor = uiState.reportAnchorDate;
+
+      // 1. Cập nhật nút Tuần / Tháng / Năm
+      document.querySelectorAll('.report-period-btn').forEach((btn) => {
+        const active = btn.dataset.period === period;
+        btn.className = `report-period-btn flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-semibold transition ${
+          active ? 'bg-slate-900 text-white shadow-xs' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+        }`;
+      });
+
+      // 2. Xác định khoảng ngày hiển thị và nhãn kỳ
+      let startDate, endDate, periodLabel;
+      if (period === 'year') {
+        const y = anchor.getFullYear();
+        startDate = new Date(y, 0, 1);
+        endDate = new Date(y, 11, 31);
+        periodLabel = `${y}`;
+      } else if (period === 'month') {
+        const y = anchor.getFullYear();
+        const m = anchor.getMonth();
+        startDate = new Date(y, m, 1);
+        endDate = new Date(y, m + 1, 0);
+        periodLabel = `Tháng ${m + 1}/${y}`;
+      } else {
+        startDate = getMondayOfWeek(anchor);
+        endDate = addDays(startDate, 6);
+        periodLabel = `${String(startDate.getDate()).padStart(2, '0')}/${String(startDate.getMonth() + 1).padStart(2, '0')} - ${String(endDate.getDate()).padStart(2, '0')}/${String(endDate.getMonth() + 1).padStart(2, '0')}`;
+      }
+
+      document.getElementById('report-period-label').textContent = periodLabel;
+      document.getElementById('report-sort-label').textContent = uiState.reportSortByPct ? 'Theo % cao nhất' : 'Theo thứ tự gốc';
+
+      const container = document.getElementById('report-habit-cards');
+      if (appData.habits.length === 0) {
+        container.innerHTML = `
+          <div class="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">
+            Chưa có thói quen nào để hiển thị báo cáo. Hãy thêm thói quen mới!
+          </div>
+        `;
+        return;
+      }
+
+      // 3. Tính % hoàn thành và sắp xếp nếu bật
+      const items = appData.habits.map((h) => ({
+        habit: h,
+        pct: calcPeriodCompletionPct(h, startDate, endDate)
+      }));
+      if (uiState.reportSortByPct) {
+        items.sort((a, b) => b.pct - a.pct);
+      }
+
+      // 4. Render từng thẻ thói quen
+      container.innerHTML = items.map(({ habit, pct }) => {
+        const palette = COLOR_PALETTES[habit.color] || COLOR_PALETTES.sky;
+        const fullTitle = habit.subtitle ? `${habit.name} - ${habit.subtitle}` : habit.name;
+
+        let bodyHtml = '';
+        if (period === 'year') {
+          bodyHtml = renderYearHeatmapGrid(habit, anchor.getFullYear());
+        } else if (period === 'month') {
+          bodyHtml = renderMonthHeatmapGrid(habit, anchor.getFullYear(), anchor.getMonth());
+        } else {
+          bodyHtml = renderWeekHeatmapRow(habit, startDate);
+        }
+
+        return `
+          <div class="rounded-2xl border border-slate-200/80 bg-white overflow-hidden shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <!-- Thanh tiêu đề xám nhạt giống ảnh mẫu: icon check màu + tên mục tiêu + % bên phải -->
+            <div class="bg-slate-100/90 px-3 py-2 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="w-4 h-4 rounded-full flex items-center justify-center text-white shrink-0" style="background-color: ${palette.hex};">
+                  <svg class="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </span>
+                <span class="text-xs font-semibold text-slate-800 truncate">${escapeHtml(fullTitle)}</span>
+              </div>
+              <span class="text-xs font-bold text-slate-700 shrink-0">${pct}%</span>
+            </div>
+
+            <!-- Lưới trực quan theo Năm / Tháng / Tuần -->
+            <div class="p-2.5 bg-white">
+              ${bodyHtml}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // Lưới Heatmap 52-53 tuần x 7 hàng cho chế độ xem NĂM (giống hệt ảnh mẫu)
+    function renderYearHeatmapGrid(habit, year) {
+      const jan1 = new Date(year, 0, 1);
+      const dec31 = new Date(year, 11, 31);
+      // Căn bắt đầu từ Thứ Hai đầu tiên chứa ngày 1/1
+      const gridStart = getMondayOfWeek(jan1);
+      const totalDays = Math.ceil((dec31 - gridStart) / 86400000) + 1;
+      const totalCells = Math.ceil(totalDays / 7) * 7;
+
+      let cells = '';
+      for (let i = 0; i < totalCells; i++) {
+        const d = addDays(gridStart, i);
+        const inYear = d.getFullYear() === year;
+        const key = toDateKey(d);
+        if (!inYear) {
+          cells += `<div class="year-heatmap-cell opacity-0 pointer-events-none"></div>`;
+          continue;
+        }
+        const ratio = getHabitRatio(habit, key);
+        const val = getHabitValue(habit, key);
+        const isFuture = d > todayDate;
+        const bg = isFuture ? '#f1f5f9' : getShadeForRatio(habit.color, ratio);
+        const tooltipText = habit.type === 'counter'
+          ? `${formatDateViShort(key)}: ${val}/${habit.target} ${habit.unit} (${Math.round(ratio * 100)}%)`
+          : `${formatDateViShort(key)}: ${ratio >= 1 ? 'Đã hoàn thành' : 'Chưa hoàn thành'}`;
+
+        cells += `<div class="year-heatmap-cell" style="background-color: ${bg};" data-heat-habit="${habit.id}" data-heat-date="${key}" data-heat-tip="${escapeHtml(tooltipText)}"></div>`;
+      }
+
+      return `<div class="year-heatmap-grid">${cells}</div>`;
+    }
+
+    // Lưới lịch từng ngày cho chế độ xem THÁNG
+    function renderMonthHeatmapGrid(habit, year, month) {
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const startOffset = (firstDay.getDay() + 6) % 7; // T2 = 0 ... CN = 6
+      const palette = COLOR_PALETTES[habit.color] || COLOR_PALETTES.sky;
+
+      let html = `
+        <div class="grid grid-cols-7 gap-1 text-center mb-1">
+          ${DAY_SHORT_VI.map((d) => `<span class="text-[10px] font-semibold text-slate-400">${d}</span>`).join('')}
+        </div>
+        <div class="grid grid-cols-7 gap-1">
+      `;
+
+      for (let i = 0; i < startOffset; i++) {
+        html += `<div class="h-7"></div>`;
+      }
+
+      for (let day = 1; day <= lastDay.getDate(); day++) {
+        const d = new Date(year, month, day);
+        const key = toDateKey(d);
+        const ratio = getHabitRatio(habit, key);
+        const val = getHabitValue(habit, key);
+        const isFuture = d > todayDate;
+        const bg = isFuture ? '#f8fafc' : getShadeForRatio(habit.color, ratio);
+        const textColor = ratio >= 0.7 ? '#ffffff' : '#334155';
+        const isTodayBorder = key === todayKey ? `outline: 2px solid ${palette.hex};` : '';
+        const tip = habit.type === 'counter'
+          ? `${formatDateViShort(key)}: ${val}/${habit.target} ${habit.unit}`
+          : `${formatDateViShort(key)}: ${ratio >= 1 ? 'Hoàn thành' : 'Chưa làm'}`;
+
+        html += `
+          <button type="button" data-heat-habit="${habit.id}" data-heat-date="${key}" data-heat-tip="${escapeHtml(tip)}"
+            class="h-7 rounded-lg text-[11px] font-semibold flex items-center justify-center transition active:scale-90"
+            style="background-color: ${bg}; color: ${isFuture ? '#cbd5e1' : textColor}; ${isTodayBorder}">
+            ${day}
+          </button>
+        `;
+      }
+
+      html += `</div>`;
+      return html;
+    }
+
+    // Hàng 7 ngày chi tiết cho chế độ xem TUẦN
+    function renderWeekHeatmapRow(habit, mondayDate) {
+      let html = `<div class="grid grid-cols-7 gap-1.5">`;
+      for (let i = 0; i < 7; i++) {
+        const d = addDays(mondayDate, i);
+        const key = toDateKey(d);
+        const ratio = getHabitRatio(habit, key);
+        const val = getHabitValue(habit, key);
+        const isFuture = d > todayDate;
+        const bg = isFuture ? '#f8fafc' : getShadeForRatio(habit.color, ratio);
+        const textColor = ratio >= 0.7 ? '#ffffff' : '#334155';
+        const tip = habit.type === 'counter'
+          ? `${formatDateViShort(key)}: ${val}/${habit.target} ${habit.unit}`
+          : `${formatDateViShort(key)}: ${ratio >= 1 ? 'Hoàn thành' : 'Chưa làm'}`;
+
+        html += `
+          <button type="button" data-heat-habit="${habit.id}" data-heat-date="${key}" data-heat-tip="${escapeHtml(tip)}"
+            class="flex flex-col items-center justify-center py-2 rounded-xl transition active:scale-90"
+            style="background-color: ${bg}; color: ${isFuture ? '#cbd5e1' : textColor};">
+            <span class="text-[10px] opacity-80">${DAY_SHORT_VI[i]}</span>
+            <span class="text-xs font-bold mt-0.5">${d.getDate()}</span>
+            <span class="text-[10px] mt-0.5 font-semibold">${ratio >= 1 ? '✓' : ratio > 0 ? `${Math.round(ratio * 100)}%` : '·'}</span>
+          </button>
+        `;
+      }
+      html += `</div>`;
+      return html;
+    }
+
+    /* =====================================================================
+       7. RENDER TAB 3: LỊCH TỔNG HỢP & BIỂU ĐỒ XU HƯỚNG
+       ===================================================================== */
+    function renderCalendarTab() {
+      // 1. Tính 4 chỉ số KPI
+      let sum30 = 0;
+      for (let i = 0; i < 30; i++) {
+        sum30 += getDailyOverallPct(toDateKey(addDays(todayDate, -i)));
+      }
+      const avg30 = Math.round(sum30 / 30);
+
+      let maxStreak = 0;
+      let totalCheckins = 0;
+      let topHabitName = '—';
+      let topHabitPct = -1;
+      const start30 = addDays(todayDate, -29);
+
+      appData.habits.forEach((h) => {
+        maxStreak = Math.max(maxStreak, getLongestStreak(h));
+        const hLogs = appData.logs[h.id] || {};
+        Object.keys(hLogs).forEach((k) => {
+          if (getHabitRatio(h, k) >= 1) totalCheckins++;
+        });
+        const pct30 = calcPeriodCompletionPct(h, start30, todayDate);
+        if (pct30 > topHabitPct) {
+          topHabitPct = pct30;
+          topHabitName = `${h.name} (${pct30}%)`;
+        }
+      });
+
+      document.getElementById('stat-avg-30').textContent = `${avg30}%`;
+      document.getElementById('stat-max-streak').textContent = `${maxStreak} ngày`;
+      document.getElementById('stat-total-checkins').textContent = totalCheckins.toLocaleString('vi-VN');
+      document.getElementById('stat-top-habit').textContent = topHabitName;
+
+      // 2. Render Lịch tháng
+      const y = uiState.calViewYear;
+      const m = uiState.calViewMonth;
+      document.getElementById('cal-month-title').textContent = `Tháng ${m + 1}, ${y}`;
+
+      const firstDay = new Date(y, m, 1);
+      const lastDay = new Date(y, m + 1, 0);
+      const offset = (firstDay.getDay() + 6) % 7;
+
+      let gridHtml = '';
+      for (let i = 0; i < offset; i++) gridHtml += `<div></div>`;
+
+      for (let day = 1; day <= lastDay.getDate(); day++) {
+        const d = new Date(y, m, day);
+        const key = toDateKey(d);
+        const pct = getDailyOverallPct(key);
+        const isSelected = key === uiState.calSelectedKey;
+        const isNow = key === todayKey;
+
+        let badgeClass = 'bg-slate-50 text-slate-700';
+        if (pct >= 100) badgeClass = 'bg-emerald-500 text-white';
+        else if (pct >= 60) badgeClass = 'bg-emerald-200 text-emerald-950';
+        else if (pct > 0) badgeClass = 'bg-emerald-100 text-emerald-900';
+
+        gridHtml += `
+          <button type="button" data-cal-date="${key}" class="h-10 rounded-xl flex flex-col items-center justify-center transition ${badgeClass} ${
+            isSelected ? 'ring-2 ring-slate-900 ring-offset-1' : ''
+          } ${isNow && !isSelected ? 'ring-1 ring-sky-500' : ''}">
+            <span class="text-xs font-bold leading-none">${day}</span>
+            <span class="text-[9px] mt-0.5 opacity-80">${pct > 0 ? pct + '%' : ''}</span>
+          </button>
+        `;
+      }
+      document.getElementById('cal-grid').innerHTML = gridHtml;
+
+      // 3. Render chi tiết ngày đang chọn
+      const selDate = parseDateKey(uiState.calSelectedKey);
+      document.getElementById('cal-selected-date-title').textContent = `Chi tiết ${formatDateViLong(selDate)}`;
+      document.getElementById('cal-selected-date-pct').textContent = `${getDailyOverallPct(uiState.calSelectedKey)}%`;
+
+      const dayListEl = document.getElementById('cal-day-habits');
+      if (appData.habits.length === 0) {
+        dayListEl.innerHTML = `<p class="text-xs text-slate-500">Chưa có thói quen nào.</p>`;
+      } else {
+        dayListEl.innerHTML = appData.habits.map((h) => {
+          const palette = COLOR_PALETTES[h.color] || COLOR_PALETTES.sky;
+          const val = getHabitValue(h.id, uiState.calSelectedKey);
+          const done = isHabitDone(h, uiState.calSelectedKey);
+          return `
+            <div class="flex items-center justify-between bg-white rounded-xl px-3 py-2 border border-slate-200/70">
+              <div class="flex items-center gap-2 min-w-0">
+                <span class="w-2.5 h-2.5 rounded-full shrink-0" style="background-color: ${palette.hex};"></span>
+                <span class="text-xs font-semibold text-slate-800 truncate">${escapeHtml(h.name)}</span>
+                ${h.type === 'counter' ? `<span class="text-[11px] text-slate-500 shrink-0">(${val}/${h.target} ${escapeHtml(h.unit)})</span>` : ''}
+              </div>
+              <button type="button" data-cal-toggle="${h.id}" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
+                done ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              }">
+                ${done ? 'Đã xong ✓' : 'Đánh dấu'}
+              </button>
+            </div>
+          `;
+        }).join('');
+      }
+
+      // 4. Vẽ biểu đồ Chart.js 14 ngày gần nhất
+      renderTrendChart();
+    }
+
+    function renderTrendChart() {
+      const canvas = document.getElementById('trend-chart');
+      if (!canvas || typeof Chart === 'undefined') return;
+
+      const labels = [];
+      const values = [];
+      for (let i = 13; i >= 0; i--) {
+        const d = addDays(todayDate, -i);
+        labels.push(`${d.getDate()}/${d.getMonth() + 1}`);
+        values.push(getDailyOverallPct(toDateKey(d)));
+      }
+
+      if (trendChartInstance) {
+        trendChartInstance.destroy();
+      }
+
+      trendChartInstance = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Tỷ lệ hoàn thành (%)',
+            data: values,
+            borderColor: '#0f172a',
+            backgroundColor: 'rgba(15, 23, 42, 0.08)',
+            borderWidth: 2,
+            pointRadius: 3,
+            pointBackgroundColor: '#0f172a',
+            fill: true,
+            tension: 0.35
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: (ctx) => `Hoàn thành: ${ctx.parsed.y}%`
+              }
+            }
+          },
+          scales: {
+            y: {
+              min: 0,
+              max: 100,
+              ticks: { stepSize: 25, font: { size: 10 }, callback: (v) => v + '%' },
+              grid: { color: '#f1f5f9' }
+            },
+            x: {
+              ticks: { font: { size: 10 } },
+              grid: { display: false }
+            }
+          }
+        }
+      });
+    }
+
+    /* =====================================================================
+       8. RENDER TAB 4: CÀI ĐẶT, QUẢN LÝ THÓI QUEN & DỮ LIỆU
+       ===================================================================== */
+    function renderSettingsTab() {
+      const listEl = document.getElementById('settings-habit-list');
+      if (appData.habits.length === 0) {
+        listEl.innerHTML = `<p class="text-xs text-slate-500 py-2">Danh sách thói quen đang trống.</p>`;
+      } else {
+        listEl.innerHTML = appData.habits.map((h) => {
+          const palette = COLOR_PALETTES[h.color] || COLOR_PALETTES.sky;
+          return `
+            <div class="flex items-center justify-between gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+              <div class="flex items-center gap-2.5 min-w-0">
+                <span class="w-3.5 h-3.5 rounded-full shrink-0" style="background-color: ${palette.hex};"></span>
+                <div class="min-w-0">
+                  <p class="text-xs font-bold text-slate-800 truncate">${escapeHtml(h.name)}</p>
+                  <p class="text-[11px] text-slate-500 truncate">${escapeHtml(h.subtitle || (h.type === 'counter' ? `${h.target} ${h.unit}/ngày` : 'Hằng ngày'))}</p>
+                </div>
+              </div>
+              <button type="button" data-action="edit-habit" data-habit-id="${h.id}" class="px-3 py-1.5 rounded-lg bg-white border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-100 shrink-0">
+                Sửa
+              </button>
+            </div>
+          `;
+        }).join('');
+      }
+      updateStorageInfo();
+    }
+
+    function updateStorageInfo() {
+      const infoEl = document.getElementById('storage-info');
+      if (!infoEl) return;
+      const totalEntries = Object.values(appData.logs).reduce((acc, obj) => acc + Object.keys(obj || {}).length, 0);
+      const sizeKb = (new Blob([JSON.stringify(appData)]).size / 1024).toFixed(1);
+      infoEl.textContent = `Đã lưu cục bộ: ${appData.habits.length} thói quen · ${totalEntries} bản ghi check-in · ~${sizeKb} KB`;
+    }
+
+    /* =====================================================================
+       9. CHUYỂN TAB & ĐỒNG BỘ GIAO DIỆN CHUNG
+       ===================================================================== */
+    function switchTab(tabName) {
+      uiState.activeTab = tabName;
+      const views = {
+        today: { el: 'view-today', title: 'Hôm nay', sub: formatDateViLong(parseDateKey(uiState.selectedTodayKey)) },
+        report: { el: 'view-report', title: 'Báo cáo thói quen', sub: 'Theo dõi mục tiêu theo Tuần · Tháng · Năm' },
+        calendar: { el: 'view-calendar', title: 'Lịch & Thống kê', sub: 'Tổng quan lịch sử và chuỗi duy trì' },
+        settings: { el: 'view-settings', title: 'Dữ liệu & Cài đặt', sub: 'Lưu trữ cục bộ · Sao lưu JSON / CSV' }
+      };
+
+      Object.keys(views).forEach((k) => {
+        document.getElementById(views[k].el).classList.toggle('hidden', k !== tabName);
+      });
+
+      document.getElementById('header-title').textContent = views[tabName].title;
+      document.getElementById('header-subtitle').textContent = views[tabName].sub;
+
+      document.querySelectorAll('.nav-tab-btn').forEach((btn) => {
+        const active = btn.dataset.tab === tabName;
+        btn.className = `nav-tab-btn flex flex-col items-center justify-center gap-1 transition ${
+          active ? 'text-slate-900 font-bold' : 'text-slate-400 hover:text-slate-700 font-medium'
+        }`;
+      });
+
+      renderAll();
+    }
+
+    function renderAll() {
+      // Hiện/ẩn thanh thông báo dữ liệu mẫu
+      document.getElementById('demo-banner').classList.toggle('hidden', !appData.isDemo);
+
+      if (uiState.activeTab === 'today') {
+        document.getElementById('header-subtitle').textContent = formatDateViLong(parseDateKey(uiState.selectedTodayKey));
+        renderTodayTab();
+      } else if (uiState.activeTab === 'report') {
+        renderReportTab();
+      } else if (uiState.activeTab === 'calendar') {
+        renderCalendarTab();
+      } else if (uiState.activeTab === 'settings') {
+        renderSettingsTab();
+      }
+      refreshIcons();
+    }
+
+    function refreshIcons() {
+      if (typeof lucide !== 'undefined' && lucide.createIcons) {
+        lucide.createIcons();
+      }
+    }
+
+    /* =====================================================================
+       10. MODAL THÊM / SỬA THÓI QUEN & MODAL XÁC NHẬN
+       ===================================================================== */
+    function renderColorPicker(activeColor) {
+      uiState.selectedColor = activeColor;
+      const picker = document.getElementById('habit-color-picker');
+      picker.innerHTML = Object.keys(COLOR_PALETTES).map((key) => {
+        const p = COLOR_PALETTES[key];
+        const selected = key === activeColor;
+        return `
+          <button type="button" data-pick-color="${key}" title="${p.name}"
+            class="w-8 h-8 rounded-full flex items-center justify-center transition ${selected ? 'ring-2 ring-offset-2 ring-slate-900 scale-110' : 'hover:scale-105'}"
+            style="background-color: ${p.hex};">
+            ${selected ? '<svg class="w-4 h-4 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"></polyline></svg>' : ''}
+          </button>
+        `;
+      }).join('');
+    }
+
+    function openHabitModal(habitId = null) {
+      const modal = document.getElementById('habit-modal');
+      const titleEl = document.getElementById('habit-modal-title');
+      const deleteBtn = document.getElementById('btn-delete-habit-modal');
+
+      if (habitId) {
+        const h = appData.habits.find((item) => item.id === habitId);
+        if (!h) return;
+        titleEl.textContent = 'Chỉnh sửa thói quen';
+        document.getElementById('habit-id-input').value = h.id;
+        document.getElementById('habit-name-input').value = h.name;
+        document.getElementById('habit-subtitle-input').value = h.subtitle || '';
+        document.getElementById('habit-type-input').value = h.type;
+        document.getElementById('habit-time-input').value = h.timeOfDay || 'anytime';
+        document.getElementById('habit-target-input').value = h.target || 1;
+        document.getElementById('habit-step-input').value = h.step || 1;
+        document.getElementById('habit-unit-input').value = h.unit || 'lần';
+        document.getElementById('counter-config-row').classList.toggle('hidden', h.type !== 'counter');
+        renderColorPicker(h.color || 'sky');
+        deleteBtn.classList.remove('hidden');
+      } else {
+        titleEl.textContent = 'Thêm thói quen mới';
+        document.getElementById('habit-form').reset();
+        document.getElementById('habit-id-input').value = '';
+        document.getElementById('habit-type-input').value = 'boolean';
+        document.getElementById('counter-config-row').classList.add('hidden');
+        renderColorPicker('sky');
+        deleteBtn.classList.add('hidden');
+      }
+
+      modal.classList.remove('hidden');
+      refreshIcons();
+    }
+
+    function closeHabitModal() {
+      document.getElementById('habit-modal').classList.add('hidden');
+    }
+
+    function openConfirmModal(title, message, onConfirm) {
+      document.getElementById('confirm-modal-title').textContent = title;
+      document.getElementById('confirm-modal-message').textContent = message;
+      pendingConfirmAction = onConfirm;
+      document.getElementById('confirm-modal').classList.remove('hidden');
+    }
+
+    function closeConfirmModal() {
+      pendingConfirmAction = null;
+      document.getElementById('confirm-modal').classList.add('hidden');
+    }
+
+    function showToast(message) {
+      const container = document.getElementById('toast-container');
+      const el = document.createElement('div');
+      el.className = 'rounded-xl bg-slate-900 text-white px-4 py-2 text-xs font-medium shadow-lg transition-opacity duration-300';
+      el.textContent = message;
+      container.appendChild(el);
+      setTimeout(() => {
+        el.style.opacity = '0';
+        setTimeout(() => el.remove(), 300);
+      }, 2200);
+    }
+
+    /* =====================================================================
+       11. CHỨC NĂNG XUẤT FILE JSON, NHẬP FILE JSON & XUẤT FILE CSV
+       ===================================================================== */
+    function downloadTextFile(filename, content, mimeType) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    // Xuất toàn bộ dữ liệu ra file .JSON
+    function exportJSON() {
+      const payload = {
+        app: 'HabitTrack',
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        data: appData
+      };
+      downloadTextFile(`habit-tracker-backup-${todayKey}.json`, JSON.stringify(payload, null, 2), 'application/json;charset=utf-8');
+      showToast('Đã tải xuống file sao lưu .JSON');
+    }
+
+    // Nhập file .JSON để khôi phục dữ liệu
+    function handleImportJSON(file) {
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const parsed = JSON.parse(e.target.result);
+          const imported = parsed.data ? parsed.data : parsed;
+          if (!imported || !Array.isArray(imported.habits) || typeof imported.logs !== 'object') {
+            showToast('File JSON không đúng định dạng HabitTrack.');
+            return;
+          }
+          appData = {
+            isDemo: false,
+            lastUpdated: new Date().toISOString(),
+            habits: imported.habits,
+            logs: imported.logs
+          };
+          saveToStorage();
+          renderAll();
+          showToast(`Đã khôi phục ${appData.habits.length} thói quen từ file JSON!`);
+        } catch (err) {
+          showToast('Lỗi đọc file JSON. Vui lòng kiểm tra lại file.');
+        }
+      };
+      reader.readAsText(file, 'utf-8');
+    }
+
+    function csvCell(val) {
+      const s = String(val ?? '');
+      if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+      return s;
+    }
+
+    // Xuất CSV dạng Ma trận (30 ngày gần nhất nằm ngang, thói quen nằm dọc) kèm UTF-8 BOM cho Excel
+    function exportCSVMatrix() {
+      const days = [];
+      for (let i = 29; i >= 0; i--) {
+        days.push(toDateKey(addDays(todayDate, -i)));
+      }
+      const header = ['Thói quen', 'Mục tiêu', ...days.map((d) => formatDateViShort(d)), 'Tỷ lệ 30 ngày (%)'];
+      const rows = [header.map(csvCell).join(',')];
+
+      appData.habits.forEach((h) => {
+        const start30 = addDays(todayDate, -29);
+        const pct = calcPeriodCompletionPct(h, start30, todayDate);
+        const cells = days.map((d) => {
+          const val = getHabitValue(h.id, d);
+          if (h.type === 'boolean') return val >= 1 ? '✓' : '';
+          return val > 0 ? `${val}/${h.target}` : '';
+        });
+        rows.push([h.name, h.subtitle || `${h.target} ${h.unit}`, ...cells, `${pct}%`].map(csvCell).join(','));
+      });
+
+      const bom = '\uFEFF';
+      downloadTextFile(`habit-tracker-matrix-${todayKey}.csv`, bom + rows.join('\n'), 'text/csv;charset=utf-8');
+      showToast('Đã xuất file CSV Ma trận (30 ngày)');
+    }
+
+    // Xuất CSV dạng Nhật ký chi tiết (toàn bộ lịch sử đã ghi nhận)
+    function exportCSVLog() {
+      const header = ['Ngày', 'Thói quen', 'Mục tiêu', 'Đạt được', 'Đơn vị', 'Hoàn thành (%)'];
+      const rows = [header.map(csvCell).join(',')];
+
+      appData.habits.forEach((h) => {
+        const hLogs = appData.logs[h.id] || {};
+        Object.keys(hLogs).sort().forEach((dateKey) => {
+          const val = hLogs[dateKey];
+          const pct = Math.round(getHabitRatio(h, dateKey) * 100);
+          rows.push([
+            formatDateViShort(dateKey),
+            h.name,
+            h.target,
+            val,
+            h.unit || 'lần',
+            `${pct}%`
+          ].map(csvCell).join(','));
+        });
+      });
+
+      const bom = '\uFEFF';
+      downloadTextFile(`habit-tracker-nhat-ky-${todayKey}.csv`, bom + rows.join('\n'), 'text/csv;charset=utf-8');
+      showToast('Đã xuất file CSV Nhật ký chi tiết');
+    }
+
+    /* =====================================================================
+       12. GẮN SỰ KIỆN TƯƠNG TÁC (EVENT LISTENERS)
+       ===================================================================== */
+    function bindEvents() {
+      // Chuyển 4 tab dưới cùng
+      document.querySelectorAll('.nav-tab-btn').forEach((btn) => {
+        btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+      });
+
+      // Nút mở modal Thêm thói quen
+      document.getElementById('btn-open-add-habit').addEventListener('click', () => openHabitModal(null));
+      document.getElementById('btn-settings-add-habit').addEventListener('click', () => openHabitModal(null));
+      document.getElementById('btn-close-habit-modal').addEventListener('click', closeHabitModal);
+      document.getElementById('btn-cancel-habit-modal').addEventListener('click', closeHabitModal);
+
+      // Hiện/ẩn phần cấu hình số lượng khi đổi kiểu theo dõi
+      document.getElementById('habit-type-input').addEventListener('change', (e) => {
+        document.getElementById('counter-config-row').classList.toggle('hidden', e.target.value !== 'counter');
+      });
+
+      // Chọn màu trong modal
+      document.getElementById('habit-color-picker').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-pick-color]');
+        if (btn) renderColorPicker(btn.dataset.pickColor);
+      });
+
+      // Lưu form Thêm / Sửa thói quen
+      document.getElementById('habit-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+        const id = document.getElementById('habit-id-input').value;
+        const name = document.getElementById('habit-name-input').value.trim();
+        if (!name) return;
+
+        const type = document.getElementById('habit-type-input').value;
+        const payload = {
+          name,
+          subtitle: document.getElementById('habit-subtitle-input').value.trim(),
+          type,
+          timeOfDay: document.getElementById('habit-time-input').value,
+          target: type === 'counter' ? Math.max(1, Number(document.getElementById('habit-target-input').value) || 1) : 1,
+          step: type === 'counter' ? Math.max(0.5, Number(document.getElementById('habit-step-input').value) || 1) : 1,
+          unit: type === 'counter' ? (document.getElementById('habit-unit-input').value.trim() || 'lần') : 'lần',
+          color: uiState.selectedColor || 'sky'
+        };
+
+        if (id) {
+          const idx = appData.habits.findIndex((h) => h.id === id);
+          if (idx !== -1) {
+            appData.habits[idx] = { ...appData.habits[idx], ...payload };
+          }
+          showToast('Đã cập nhật thói quen');
+        } else {
+          const newId = 'h_' + Date.now();
+          appData.habits.push({ id: newId, createdAt: todayKey, ...payload });
+          appData.logs[newId] = {};
+          showToast('Đã thêm thói quen mới');
+        }
+
+        appData.isDemo = false;
+        saveToStorage();
+        closeHabitModal();
+        renderAll();
+      });
+
+      // Xóa thói quen từ modal
+      document.getElementById('btn-delete-habit-modal').addEventListener('click', () => {
+        const id = document.getElementById('habit-id-input').value;
+        const h = appData.habits.find((item) => item.id === id);
+        if (!h) return;
+        closeHabitModal();
+        openConfirmModal(
+          'Xóa thói quen?',
+          `Bạn có chắc muốn xóa "${h.name}" cùng toàn bộ lịch sử check-in của thói quen này không?`,
+          () => {
+            appData.habits = appData.habits.filter((item) => item.id !== id);
+            delete appData.logs[id];
+            saveToStorage();
+            renderAll();
+            showToast('Đã xóa thói quen');
+          }
+        );
+      });
+
+      // Modal xác nhận
+      document.getElementById('btn-confirm-cancel').addEventListener('click', closeConfirmModal);
+      document.getElementById('btn-confirm-ok').addEventListener('click', () => {
+        if (typeof pendingConfirmAction === 'function') pendingConfirmAction();
+        closeConfirmModal();
+      });
+
+      // Nút xóa dữ liệu mẫu trên banner
+      document.getElementById('btn-clear-demo').addEventListener('click', () => {
+        openConfirmModal(
+          'Bắt đầu dữ liệu thật?',
+          'Lịch sử mẫu sẽ được xóa trắng để bạn tự check-in từ hôm nay (vẫn giữ lại 6 thói quen gợi ý để bạn dùng ngay hoặc chỉnh sửa).',
+          () => {
+            appData.isDemo = false;
+            appData.logs = {};
+            appData.habits.forEach((h) => { appData.logs[h.id] = {}; });
+            saveToStorage();
+            renderAll();
+            showToast('Đã xóa lịch sử mẫu — Chúc bạn duy trì thói quen tốt!');
+          }
+        );
+      });
+
+      // --- SỰ KIỆN TAB 1: HÔM NAY ---
+      document.getElementById('today-week-strip').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-select-date]');
+        if (!btn) return;
+        uiState.selectedTodayKey = btn.dataset.selectDate;
+        renderAll();
+      });
+
+      document.getElementById('btn-today-prev-week').addEventListener('click', () => {
+        uiState.selectedTodayKey = toDateKey(addDays(parseDateKey(uiState.selectedTodayKey), -7));
+        renderAll();
+      });
+
+      document.getElementById('btn-today-next-week').addEventListener('click', () => {
+        uiState.selectedTodayKey = toDateKey(addDays(parseDateKey(uiState.selectedTodayKey), 7));
+        renderAll();
+      });
+
+      document.getElementById('btn-today-jump-now').addEventListener('click', () => {
+        uiState.selectedTodayKey = todayKey;
+        renderAll();
+      });
+
+      document.getElementById('today-time-filters').addEventListener('click', (e) => {
+        const btn = e.target.closest('.time-filter-btn');
+        if (!btn) return;
+        uiState.todayFilter = btn.dataset.filter;
+        renderTodayTab();
+      });
+
+      document.getElementById('today-habit-list').addEventListener('click', (e) => {
+        const actionEl = e.target.closest('[data-action]');
+        if (!actionEl) return;
+        const action = actionEl.dataset.action;
+        const habitId = actionEl.dataset.habitId;
+        const habit = appData.habits.find((h) => h.id === habitId);
+        if (!habit) return;
+
+        if (action === 'edit-habit') {
+          openHabitModal(habitId);
+          return;
+        }
+
+        const key = uiState.selectedTodayKey;
+        const current = getHabitValue(habitId, key);
+
+        if (action === 'toggle-habit') {
+          setHabitValue(habitId, key, current >= habit.target ? 0 : habit.target);
+        } else if (action === 'inc-habit') {
+          setHabitValue(habitId, key, Math.min(habit.target * 2, Number((current + habit.step).toFixed(2))));
+        } else if (action === 'dec-habit') {
+          setHabitValue(habitId, key, Math.max(0, Number((current - habit.step).toFixed(2))));
+        }
+
+        appData.isDemo = false;
+        renderTodayTab();
+      });
+
+      // --- SỰ KIỆN TAB 2: BÁO CÁO HEATMAP ---
+      document.querySelectorAll('.report-period-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          uiState.reportPeriod = btn.dataset.period;
+          renderReportTab();
+        });
+      });
+
+      document.getElementById('btn-report-prev').addEventListener('click', () => {
+        const a = uiState.reportAnchorDate;
+        if (uiState.reportPeriod === 'year') {
+          uiState.reportAnchorDate = new Date(a.getFullYear() - 1, a.getMonth(), 1);
+        } else if (uiState.reportPeriod === 'month') {
+          uiState.reportAnchorDate = new Date(a.getFullYear(), a.getMonth() - 1, 1);
+        } else {
+          uiState.reportAnchorDate = addDays(a, -7);
+        }
+        renderReportTab();
+      });
+
+      document.getElementById('btn-report-next').addEventListener('click', () => {
+        const a = uiState.reportAnchorDate;
+        if (uiState.reportPeriod === 'year') {
+          uiState.reportAnchorDate = new Date(a.getFullYear() + 1, a.getMonth(), 1);
+        } else if (uiState.reportPeriod === 'month') {
+          uiState.reportAnchorDate = new Date(a.getFullYear(), a.getMonth() + 1, 1);
+        } else {
+          uiState.reportAnchorDate = addDays(a, 7);
+        }
+        renderReportTab();
+      });
+
+      document.getElementById('btn-report-today').addEventListener('click', () => {
+        uiState.reportAnchorDate = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate());
+        renderReportTab();
+      });
+
+      document.getElementById('btn-report-sort').addEventListener('click', () => {
+        uiState.reportSortByPct = !uiState.reportSortByPct;
+        renderReportTab();
+      });
+
+      // Tương tác rê chuột xem tooltip & bấm vào ô Heatmap để bật/tắt check-in
+      const reportCards = document.getElementById('report-habit-cards');
+      const tooltipEl = document.getElementById('heatmap-tooltip');
+
+      reportCards.addEventListener('mouseover', (e) => {
+        const cell = e.target.closest('[data-heat-tip]');
+        if (!cell) return;
+        tooltipEl.textContent = cell.dataset.heatTip;
+        tooltipEl.classList.remove('hidden');
+        const rect = cell.getBoundingClientRect();
+        tooltipEl.style.left = `${Math.min(window.innerWidth - 180, Math.max(8, rect.left - 40))}px`;
+        tooltipEl.style.top = `${Math.max(8, rect.top - 34)}px`;
+      });
+
+      reportCards.addEventListener('mouseout', (e) => {
+        if (e.target.closest('[data-heat-tip]')) {
+          tooltipEl.classList.add('hidden');
+        }
+      });
+
+      reportCards.addEventListener('click', (e) => {
+        const cell = e.target.closest('[data-heat-habit]');
+        if (!cell) return;
+        const habitId = cell.dataset.heatHabit;
+        const dateKey = cell.dataset.heatDate;
+        const habit = appData.habits.find((h) => h.id === habitId);
+        if (!habit) return;
+
+        const current = getHabitValue(habitId, dateKey);
+        const nextVal = current >= habit.target ? 0 : habit.target;
+        setHabitValue(habitId, dateKey, nextVal);
+        appData.isDemo = false;
+        tooltipEl.classList.add('hidden');
+        renderReportTab();
+        showToast(`${habit.name} (${formatDateViShort(dateKey)}): ${nextVal > 0 ? 'Đã hoàn thành' : 'Đã bỏ đánh dấu'}`);
+      });
+
+      // --- SỰ KIỆN TAB 3: LỊCH ---
+      document.getElementById('btn-cal-prev').addEventListener('click', () => {
+        uiState.calViewMonth--;
+        if (uiState.calViewMonth < 0) {
+          uiState.calViewMonth = 11;
+          uiState.calViewYear--;
+        }
+        renderCalendarTab();
+      });
+
+      document.getElementById('btn-cal-next').addEventListener('click', () => {
+        uiState.calViewMonth++;
+        if (uiState.calViewMonth > 11) {
+          uiState.calViewMonth = 0;
+          uiState.calViewYear++;
+        }
+        renderCalendarTab();
+      });
+
+      document.getElementById('btn-cal-today').addEventListener('click', () => {
+        uiState.calViewYear = todayDate.getFullYear();
+        uiState.calViewMonth = todayDate.getMonth();
+        uiState.calSelectedKey = todayKey;
+        renderCalendarTab();
+      });
+
+      document.getElementById('cal-grid').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-cal-date]');
+        if (!btn) return;
+        uiState.calSelectedKey = btn.dataset.calDate;
+        renderCalendarTab();
+      });
+
+      document.getElementById('cal-day-habits').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-cal-toggle]');
+        if (!btn) return;
+        const habitId = btn.dataset.calToggle;
+        const habit = appData.habits.find((h) => h.id === habitId);
+        if (!habit) return;
+        const current = getHabitValue(habitId, uiState.calSelectedKey);
+        setHabitValue(habitId, uiState.calSelectedKey, current >= habit.target ? 0 : habit.target);
+        appData.isDemo = false;
+        renderCalendarTab();
+      });
+
+      // --- SỰ KIỆN TAB 4: CÀI ĐẶT & XUẤT NHẬP FILE ---
+      document.getElementById('settings-habit-list').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-action="edit-habit"]');
+        if (btn) openHabitModal(btn.dataset.habitId);
+      });
+
+      document.getElementById('btn-export-json').addEventListener('click', exportJSON);
+      document.getElementById('btn-export-csv-matrix').addEventListener('click', exportCSVMatrix);
+      document.getElementById('btn-export-csv-log').addEventListener('click', exportCSVLog);
+
+      document.getElementById('input-import-json').addEventListener('change', (e) => {
+        handleImportJSON(e.target.files[0]);
+        e.target.value = '';
+      });
+
+      document.getElementById('btn-load-demo').addEventListener('click', () => {
+        openConfirmModal(
+          'Nạp lại dữ liệu mẫu?',
+          'Dữ liệu hiện tại sẽ được thay thế bằng bộ 6 thói quen mẫu có sẵn lịch sử cả năm.',
+          () => {
+            appData = buildDemoData();
+            saveToStorage();
+            renderAll();
+            showToast('Đã nạp lại dữ liệu mẫu');
+          }
+        );
+      });
+
+      document.getElementById('btn-reset-all').addEventListener('click', () => {
+        openConfirmModal(
+          'Xóa trắng lịch sử check-in?',
+          'Toàn bộ lịch sử đánh dấu các ngày sẽ bị xóa về 0 (vẫn giữ lại danh sách tên thói quen). Bạn nên xuất file JSON trước khi xóa.',
+          () => {
+            appData.isDemo = false;
+            appData.logs = {};
+            appData.habits.forEach((h) => { appData.logs[h.id] = {}; });
+            saveToStorage();
+            renderAll();
+            showToast('Đã xóa trắng toàn bộ lịch sử check-in');
+          }
+        );
+      });
+
+      // Modal Xuất nhanh trên Header
+      const exportModal = document.getElementById('export-modal');
+      document.getElementById('btn-quick-export').addEventListener('click', () => {
+        exportModal.classList.remove('hidden');
+        refreshIcons();
+      });
+      document.getElementById('btn-close-export-modal').addEventListener('click', () => exportModal.classList.add('hidden'));
+      document.getElementById('btn-quick-json').addEventListener('click', () => {
+        exportModal.classList.add('hidden');
+        exportJSON();
+      });
+      document.getElementById('btn-quick-csv-matrix').addEventListener('click', () => {
+        exportModal.classList.add('hidden');
+        exportCSVMatrix();
+      });
+      document.getElementById('btn-quick-csv-log').addEventListener('click', () => {
+        exportModal.classList.add('hidden');
+        exportCSVLog();
+      });
+    }
+
+    /* =====================================================================
+       13. KHỞI CHẠY ỨNG DỤNG
+       ===================================================================== */
+    window.addEventListener('DOMContentLoaded', () => {
+      loadFromStorage();
+      bindEvents();
+      switchTab(uiState.activeTab);
+    });
+  </script>
+</body>
+</html>
+```
