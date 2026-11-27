@@ -1,3 +1,4 @@
+```html
 <!DOCTYPE html>
 <html lang="vi">
 <head>
@@ -229,7 +230,7 @@
 
         <!-- Tùy chọn sắp xếp danh sách báo cáo -->
         <div class="flex items-center justify-between text-[11px] text-slate-500 px-0.5">
-          <span id="report-summary-hint">Chạm vào ô màu để xem hoặc cập nhật ngày</span>
+          <span id="report-summary-hint">Chạm hoặc rê chuột vào ô màu để xem chi tiết ngày</span>
           <button id="btn-report-sort" type="button" class="inline-flex items-center gap-1 font-semibold text-slate-700 hover:text-slate-900">
             <i data-lucide="arrow-up-down" class="w-3.5 h-3.5"></i>
             <span id="report-sort-label">Theo % cao nhất</span>
@@ -586,47 +587,48 @@
        ===================================================================== */
     const STORAGE_KEY = 'habittrack_local_v1';
 
-    // Bảng màu 6 tông chính giống ảnh mẫu + 2 tông bổ sung (mỗi màu có 5 cấp độ đậm nhạt)
+    // Bảng màu 6 tông chính giống ảnh mẫu + 2 tông bổ sung
+    // Mỗi màu gồm 6 mức: [0] nền trống 0%, [1] 1-49%, [2] 50-99%, [3] 100-149% (đạt mục tiêu), [4] 150-199% (vượt mục tiêu), [5] >=200% (vượt trội)
     const COLOR_PALETTES = {
       sky: {
         name: 'Xanh dương',
         hex: '#5ba9e1',
-        shades: ['#eaf4fc', '#bde0f7', '#8cc7f0', '#5ba9e1', '#2e86c1']
+        shades: ['#eaf4fc', '#c7e5fa', '#8cc7f0', '#5ba9e1', '#2e86c1', '#1b4f72']
       },
       coral: {
         name: 'Đỏ san hô',
         hex: '#d96b6b',
-        shades: ['#fcecec', '#f5c2c2', '#e89595', '#d96b6b', '#c04444']
+        shades: ['#fcecec', '#f7cccc', '#e89595', '#d96b6b', '#b83b3b', '#7f1d1d']
       },
       teal: {
         name: 'Xanh ngọc',
         hex: '#38b29a',
-        shades: ['#e7f7f4', '#b4e5db', '#79d0bf', '#38b29a', '#1d8a75']
+        shades: ['#e7f7f4', '#bce9df', '#79d0bf', '#38b29a', '#1d8a75', '#115e59']
       },
       purple: {
         name: 'Tím oải hương',
         hex: '#9b82d6',
-        shades: ['#f2effb', '#d8cdf2', '#baa8e6', '#9b82d6', '#7659bf']
+        shades: ['#f2effb', '#dfd5f7', '#baa8e6', '#9b82d6', '#7659bf', '#4c1d95']
       },
       amber: {
         name: 'Vàng nắng',
         hex: '#eab043',
-        shades: ['#fdf6e7', '#fae1ae', '#f3c978', '#eab043', '#d08d1a']
+        shades: ['#fdf6e7', '#fce5b8', '#f3c978', '#eab043', '#c98212', '#92400e']
       },
       indigo: {
         name: 'Xanh lam tím',
         hex: '#7b8cde',
-        shades: ['#eff1fb', '#cfd6f5', '#a6b2ea', '#7b8cde', '#5163c2']
+        shades: ['#eff1fb', '#d5dcf7', '#a6b2ea', '#7b8cde', '#5163c2', '#312e81']
       },
       emerald: {
         name: 'Xanh lá',
         hex: '#22c55e',
-        shades: ['#ecfdf5', '#bbf7d0', '#86efac', '#4ade80', '#16a34a']
+        shades: ['#ecfdf5', '#c6f6d5', '#86efac', '#4ade80', '#16a34a', '#14532d']
       },
       rose: {
         name: 'Hồng đậm',
         hex: '#ec4899',
-        shades: ['#fdf2f8', '#fbcfe8', '#f9a8d4', '#f472b6', '#db2777']
+        shades: ['#fdf2f8', '#fbcfe8', '#f9a8d4', '#ec4899', '#be185d', '#831843']
       }
     };
 
@@ -822,11 +824,21 @@
       return (appData.logs[habitId] && Number(appData.logs[habitId][dateKey])) || 0;
     }
 
+    // Tính tỷ lệ hoàn thành giới hạn tối đa 1 (100%) để thống kê % tổng hợp ngày/kỳ không bị lệch
     function getHabitRatio(habit, dateKey) {
       const val = getHabitValue(habit.id, dateKey);
       const target = Number(habit.target) || 1;
       if (target <= 0) return 0;
       return Math.max(0, Math.min(1, val / target));
+    }
+
+    // Tính tỷ lệ hoàn thành thực tế KHÔNG chặn trần 100% (VD: đi bộ 60/15 phút => 4.0 tức 400%)
+    // Dùng để tô độ đậm nhạt của ô chấm Heatmap và hiển thị đúng % thực tế khi làm vượt mục tiêu
+    function getHabitRawRatio(habit, dateKey) {
+      const val = getHabitValue(habit.id, dateKey);
+      const target = Number(habit.target) || 1;
+      if (target <= 0) return 0;
+      return Math.max(0, val / target);
     }
 
     function isHabitDone(habit, dateKey) {
@@ -844,14 +856,16 @@
       saveToStorage();
     }
 
-    // Chọn màu tương ứng tỷ lệ hoàn thành (0% -> 100%)
-    function getShadeForRatio(colorKey, ratio) {
+    // Chọn sắc thái màu Heatmap theo 5 mức độ hoàn thành (ngoài mức 0% là nền trống)
+    // 0%: nền nhạt | 1-49%: mức 1 | 50-99%: mức 2 | 100-149%: mức 3 (đạt mục tiêu) | 150-199%: mức 4 (vượt) | >=200%: mức 5 (vượt trội)
+    function getShadeForRatio(colorKey, rawRatio) {
       const palette = COLOR_PALETTES[colorKey] || COLOR_PALETTES.sky;
-      if (ratio <= 0) return palette.shades[0];
-      if (ratio < 0.35) return palette.shades[1];
-      if (ratio < 0.7) return palette.shades[2];
-      if (ratio < 1) return palette.shades[3];
-      return palette.shades[4];
+      if (rawRatio <= 0) return palette.shades[0];
+      if (rawRatio < 0.5) return palette.shades[1];
+      if (rawRatio < 1) return palette.shades[2];
+      if (rawRatio < 1.5) return palette.shades[3];
+      if (rawRatio < 2) return palette.shades[4];
+      return palette.shades[5];
     }
 
     // Tính chuỗi hiện tại (Current Streak) của một thói quen
@@ -1161,13 +1175,14 @@
           cells += `<div class="year-heatmap-cell opacity-0 pointer-events-none"></div>`;
           continue;
         }
-        const ratio = getHabitRatio(habit, key);
+        // Dùng tỷ lệ thực tế không chặn trần để tô đủ 5 sắc thái màu và hiển thị đúng % vượt mục tiêu
+        const rawRatio = getHabitRawRatio(habit, key);
         const val = getHabitValue(habit, key);
         const isFuture = d > todayDate;
-        const bg = isFuture ? '#f1f5f9' : getShadeForRatio(habit.color, ratio);
+        const bg = isFuture ? '#f1f5f9' : getShadeForRatio(habit.color, rawRatio);
         const tooltipText = habit.type === 'counter'
-          ? `${formatDateViShort(key)}: ${val}/${habit.target} ${habit.unit} (${Math.round(ratio * 100)}%)`
-          : `${formatDateViShort(key)}: ${ratio >= 1 ? 'Đã hoàn thành' : 'Chưa hoàn thành'}`;
+          ? `${formatDateViShort(key)}: ${val}/${habit.target} ${habit.unit} (${Math.round(rawRatio * 100)}%)`
+          : `${formatDateViShort(key)}: ${rawRatio >= 1 ? 'Đã hoàn thành' : 'Chưa hoàn thành'}`;
 
         cells += `<div class="year-heatmap-cell" style="background-color: ${bg};" data-heat-habit="${habit.id}" data-heat-date="${key}" data-heat-tip="${escapeHtml(tooltipText)}"></div>`;
       }
@@ -1196,15 +1211,16 @@
       for (let day = 1; day <= lastDay.getDate(); day++) {
         const d = new Date(year, month, day);
         const key = toDateKey(d);
-        const ratio = getHabitRatio(habit, key);
+        // Dùng tỷ lệ thực tế để phản ánh chính xác mức độ hoàn thành / vượt mục tiêu trên từng ngày trong tháng
+        const rawRatio = getHabitRawRatio(habit, key);
         const val = getHabitValue(habit, key);
         const isFuture = d > todayDate;
-        const bg = isFuture ? '#f8fafc' : getShadeForRatio(habit.color, ratio);
-        const textColor = ratio >= 0.7 ? '#ffffff' : '#334155';
+        const bg = isFuture ? '#f8fafc' : getShadeForRatio(habit.color, rawRatio);
+        const textColor = rawRatio >= 1 ? '#ffffff' : '#334155';
         const isTodayBorder = key === todayKey ? `outline: 2px solid ${palette.hex};` : '';
         const tip = habit.type === 'counter'
-          ? `${formatDateViShort(key)}: ${val}/${habit.target} ${habit.unit}`
-          : `${formatDateViShort(key)}: ${ratio >= 1 ? 'Hoàn thành' : 'Chưa làm'}`;
+          ? `${formatDateViShort(key)}: ${val}/${habit.target} ${habit.unit} (${Math.round(rawRatio * 100)}%)`
+          : `${formatDateViShort(key)}: ${rawRatio >= 1 ? 'Hoàn thành' : 'Chưa làm'}`;
 
         html += `
           <button type="button" data-heat-habit="${habit.id}" data-heat-date="${key}" data-heat-tip="${escapeHtml(tip)}"
@@ -1225,22 +1241,23 @@
       for (let i = 0; i < 7; i++) {
         const d = addDays(mondayDate, i);
         const key = toDateKey(d);
-        const ratio = getHabitRatio(habit, key);
+        // Dùng tỷ lệ thực tế để hiển thị sắc thái đậm hơn và % thực tế khi vượt mục tiêu trong chế độ xem Tuần
+        const rawRatio = getHabitRawRatio(habit, key);
         const val = getHabitValue(habit, key);
         const isFuture = d > todayDate;
-        const bg = isFuture ? '#f8fafc' : getShadeForRatio(habit.color, ratio);
-        const textColor = ratio >= 0.7 ? '#ffffff' : '#334155';
+        const bg = isFuture ? '#f8fafc' : getShadeForRatio(habit.color, rawRatio);
+        const textColor = rawRatio >= 1 ? '#ffffff' : '#334155';
         const tip = habit.type === 'counter'
-          ? `${formatDateViShort(key)}: ${val}/${habit.target} ${habit.unit}`
-          : `${formatDateViShort(key)}: ${ratio >= 1 ? 'Hoàn thành' : 'Chưa làm'}`;
+          ? `${formatDateViShort(key)}: ${val}/${habit.target} ${habit.unit} (${Math.round(rawRatio * 100)}%)`
+          : `${formatDateViShort(key)}: ${rawRatio >= 1 ? 'Hoàn thành' : 'Chưa làm'}`;
 
         html += `
           <button type="button" data-heat-habit="${habit.id}" data-heat-date="${key}" data-heat-tip="${escapeHtml(tip)}"
-            class="flex flex-col items-center justify-center py-2 rounded-xl transition active:scale-90"
+            class="flex flex-col items-center justify-center py-2 rounded-xl transition"
             style="background-color: ${bg}; color: ${isFuture ? '#cbd5e1' : textColor};">
             <span class="text-[10px] opacity-80">${DAY_SHORT_VI[i]}</span>
             <span class="text-xs font-bold mt-0.5">${d.getDate()}</span>
-            <span class="text-[10px] mt-0.5 font-semibold">${ratio >= 1 ? '✓' : ratio > 0 ? `${Math.round(ratio * 100)}%` : '·'}</span>
+            <span class="text-[10px] mt-0.5 font-semibold">${rawRatio > 1 ? `${Math.round(rawRatio * 100)}%` : rawRatio >= 1 ? '✓' : rawRatio > 0 ? `${Math.round(rawRatio * 100)}%` : '·'}</span>
           </button>
         `;
       }
@@ -1338,11 +1355,12 @@
                 <span class="text-xs font-semibold text-slate-800 truncate">${escapeHtml(h.name)}</span>
                 ${h.type === 'counter' ? `<span class="text-[11px] text-slate-500 shrink-0">(${val}/${h.target} ${escapeHtml(h.unit)})</span>` : ''}
               </div>
-              <button type="button" data-cal-toggle="${h.id}" class="px-2.5 py-1 rounded-lg text-[11px] font-semibold transition ${
-                done ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+              <!-- Chỉ hiển thị trạng thái đã qua (không cho bấm điểm danh ở tab Lịch để tránh chạm nhầm) -->
+              <span class="px-2.5 py-1 rounded-lg text-[11px] font-semibold ${
+                done ? 'bg-emerald-100 text-emerald-800' : val > 0 ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-500'
               }">
-                ${done ? 'Đã xong ✓' : 'Đánh dấu'}
-              </button>
+                ${done ? 'Đã xong ✓' : val > 0 ? `${Math.round(getHabitRawRatio(h, uiState.calSelectedKey) * 100)}%` : 'Chưa làm'}
+              </span>
             </div>
           `;
         }).join('');
@@ -1848,7 +1866,8 @@
         if (action === 'toggle-habit') {
           setHabitValue(habitId, key, current >= habit.target ? 0 : habit.target);
         } else if (action === 'inc-habit') {
-          setHabitValue(habitId, key, Math.min(habit.target * 2, Number((current + habit.step).toFixed(2))));
+          // Cho phép cộng vô hạn vượt mục tiêu (không còn chặn trần ở habit.target * 2)
+          setHabitValue(habitId, key, Number((current + habit.step).toFixed(2)));
         } else if (action === 'dec-habit') {
           setHabitValue(habitId, key, Math.max(0, Number((current - habit.step).toFixed(2))));
         }
@@ -1919,21 +1938,15 @@
         }
       });
 
+      // Chế độ chỉ xem trên Tab Báo cáo: chạm vào ô chấm chỉ hiển thị thông tin ngày đó qua Toast, tuyệt đối không làm thay đổi dữ liệu điểm danh
       reportCards.addEventListener('click', (e) => {
         const cell = e.target.closest('[data-heat-habit]');
         if (!cell) return;
         const habitId = cell.dataset.heatHabit;
-        const dateKey = cell.dataset.heatDate;
         const habit = appData.habits.find((h) => h.id === habitId);
         if (!habit) return;
-
-        const current = getHabitValue(habitId, dateKey);
-        const nextVal = current >= habit.target ? 0 : habit.target;
-        setHabitValue(habitId, dateKey, nextVal);
-        appData.isDemo = false;
-        tooltipEl.classList.add('hidden');
-        renderReportTab();
-        showToast(`${habit.name} (${formatDateViShort(dateKey)}): ${nextVal > 0 ? 'Đã hoàn thành' : 'Đã bỏ đánh dấu'}`);
+        const tip = cell.dataset.heatTip || '';
+        showToast(`${habit.name} — ${tip}`);
       });
 
       // --- SỰ KIỆN TAB 3: LỊCH ---
@@ -1969,17 +1982,7 @@
         renderCalendarTab();
       });
 
-      document.getElementById('cal-day-habits').addEventListener('click', (e) => {
-        const btn = e.target.closest('[data-cal-toggle]');
-        if (!btn) return;
-        const habitId = btn.dataset.calToggle;
-        const habit = appData.habits.find((h) => h.id === habitId);
-        if (!habit) return;
-        const current = getHabitValue(habitId, uiState.calSelectedKey);
-        setHabitValue(habitId, uiState.calSelectedKey, current >= habit.target ? 0 : habit.target);
-        appData.isDemo = false;
-        renderCalendarTab();
-      });
+      // Tab Lịch chỉ dùng để xem lịch sử dữ liệu đã qua (đã gỡ bỏ sự kiện điểm danh trực tiếp tại đây)
 
       // --- SỰ KIỆN TAB 4: CÀI ĐẶT & XUẤT NHẬP FILE ---
       document.getElementById('settings-habit-list').addEventListener('click', (e) => {
